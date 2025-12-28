@@ -29,6 +29,16 @@ class PoseSettings(BaseModel):
     enabled: bool = False
 
 
+class ClassifierSettings(BaseModel):
+    enabled: bool = True
+
+
+class ModelsStatus(BaseModel):
+    """Status of all models - for runtime toggling."""
+    pose_enabled: bool = False
+    classifier_enabled: bool = True
+
+
 class DisplaySettings(BaseModel):
     show_overlays: bool = True
     detect_person: bool = True

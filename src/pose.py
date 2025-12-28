@@ -15,6 +15,11 @@ class PoseEstimator:
         self.confidence = confidence
         self._model = None
         self.inference_ms = 0
+        self._loaded = False
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._loaded
 
     def load(self) -> bool:
         """Load the pose model."""
@@ -42,10 +47,12 @@ class PoseEstimator:
             self._model(dummy, verbose=False)
 
             logger.info("Pose model loaded")
+            self._loaded = True
             return True
 
         except Exception as e:
             logger.error(f"Failed to load pose model: {e}")
+            self._loaded = False
             return False
 
     def estimate(self, frame: np.ndarray) -> List[List]:

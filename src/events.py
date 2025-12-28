@@ -114,7 +114,9 @@ class EventDetector:
 
     def _fire(self, event: Event):
         """Fire event to callbacks."""
-        logger.info(f"Event: {event.event_type.value} - {event.class_name}")
+        # Show description (e.g., "black truck") if available, otherwise just class
+        display_name = event.description if event.description else event.class_name
+        logger.info(f"Event: {event.event_type.value} - {display_name}")
         for cb in self._callbacks:
             try:
                 cb(event)

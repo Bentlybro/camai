@@ -204,8 +204,8 @@ def main():
                 elif d.class_name == "package" and cfg.detect_package:
                     detections.append(d)
 
-            # Classify detections for better identification
-            if classifier and detections:
+            # Classify detections for better identification (if enabled)
+            if classifier and cfg.enable_classifier and detections:
                 for d in detections:
                     result = classifier.classify(frame, d.bbox, d.class_name)
                     if result:
@@ -220,7 +220,7 @@ def main():
             if ptz and cfg.enable_ptz:
                 ptz.track_person(detections, frame.shape[1], frame.shape[0])
 
-            # Pose estimation (optional)
+            # Pose estimation (if enabled)
             keypoints = None
             if pose and cfg.enable_pose:
                 keypoints = pose.estimate(frame)
@@ -228,7 +228,12 @@ def main():
             # Update stream frames
             elapsed = time.time() - start_time
             fps = frame_count / elapsed if elapsed > 0 else 0
-            total_inf = detector.inference_ms + (pose.inference_ms if pose else 0) + (classifier.inference_ms if classifier else 0)
+            # Only count inference time for enabled models
+            total_inf = detector.inference_ms
+            if pose and cfg.enable_pose:
+                total_inf += pose.inference_ms
+            if classifier and cfg.enable_classifier:
+                total_inf += classifier.inference_ms
 
             # Main stream gets annotations (if enabled)
             if cfg.show_overlays:

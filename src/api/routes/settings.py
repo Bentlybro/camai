@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from ..models import (
     DetectionSettings, PTZSettings, PTZConnectionSettings,
-    PoseSettings, DisplaySettings, StreamSettings
+    PoseSettings, ClassifierSettings, DisplaySettings, StreamSettings
 )
 from config import load_user_settings, save_user_settings
 
@@ -26,6 +26,10 @@ async def get_settings():
     if not cfg:
         raise HTTPException(status_code=503, detail="Config not loaded")
 
+    # Check if models are loaded
+    pose = _state.get("pose")
+    classifier = _state.get("classifier")
+
     return {
         "detection": {
             "confidence": cfg.confidence,
@@ -42,6 +46,11 @@ async def get_settings():
         },
         "pose": {
             "enabled": cfg.enable_pose,
+            "loaded": pose is not None and pose.is_loaded if hasattr(pose, 'is_loaded') else pose is not None,
+        },
+        "classifier": {
+            "enabled": cfg.enable_classifier,
+            "loaded": classifier is not None and classifier.is_loaded if classifier else False,
         },
         "display": {
             "show_overlays": cfg.show_overlays,
@@ -148,8 +157,9 @@ async def update_ptz_connection(settings: PTZConnectionSettings):
 
 @router.post("/pose")
 async def update_pose(settings: PoseSettings):
-    """Update pose settings."""
+    """Update pose settings - takes effect immediately at runtime."""
     cfg = _state["config"]
+    pose = _state.get("pose")
 
     if cfg:
         cfg.enable_pose = settings.enabled
@@ -159,8 +169,38 @@ async def update_pose(settings: PoseSettings):
     user_settings["pose"] = {"enabled": settings.enabled}
     save_user_settings(user_settings)
 
-    logger.info(f"Updated pose: enabled={settings.enabled}")
-    return {"status": "ok", "note": "Restart required for pose model changes"}
+    # Check if model is loaded
+    model_loaded = pose is not None and (pose.is_loaded if hasattr(pose, 'is_loaded') else True)
+
+    logger.info(f"Updated pose: enabled={settings.enabled}, model_loaded={model_loaded}")
+
+    if settings.enabled and not model_loaded:
+        return {"status": "ok", "note": "Pose enabled but model not loaded - restart required to load model"}
+    return {"status": "ok", "enabled": settings.enabled}
+
+
+@router.post("/classifier")
+async def update_classifier(settings: ClassifierSettings):
+    """Update classifier settings - takes effect immediately at runtime."""
+    cfg = _state["config"]
+    classifier = _state.get("classifier")
+
+    if cfg:
+        cfg.enable_classifier = settings.enabled
+
+    # Save to settings.json
+    user_settings = load_user_settings()
+    user_settings["classifier"] = {"enabled": settings.enabled}
+    save_user_settings(user_settings)
+
+    # Check if model is loaded
+    model_loaded = classifier is not None and classifier.is_loaded if classifier else False
+
+    logger.info(f"Updated classifier: enabled={settings.enabled}, model_loaded={model_loaded}")
+
+    if settings.enabled and not model_loaded:
+        return {"status": "ok", "note": "Classifier enabled but model not loaded - restart required to load model"}
+    return {"status": "ok", "enabled": settings.enabled}
 
 
 @router.post("/display")

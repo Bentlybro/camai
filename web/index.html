@@ -271,20 +271,32 @@
                     </div>
                 </div>
 
-                <!-- Pose Settings -->
+                <!-- AI Models -->
                 <div class="card settings-section">
                     <div class="card-header">
-                        <h3>Pose Estimation</h3>
+                        <h3>AI Models</h3>
+                        <span class="badge badge-secondary" id="models-status">Runtime Toggle</span>
                     </div>
                     <div class="settings-form">
                         <div class="form-group">
                             <label class="toggle-label">
-                                <span>Enable Pose Estimation</span>
+                                <span>Pose Estimation</span>
                                 <input type="checkbox" id="setting-pose-enabled">
                                 <span class="toggle-slider"></span>
                             </label>
-                            <p class="form-hint">Shows body skeleton overlay on detected people. Requires restart to apply.</p>
+                            <p class="form-hint">Shows body skeleton overlay on detected people.</p>
                         </div>
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <span>Image Classifier</span>
+                                <input type="checkbox" id="setting-classifier-enabled" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <p class="form-hint">Identifies colors and types (e.g., "black truck", "person with backpack").</p>
+                        </div>
+                        <p class="form-hint" style="margin-top: 1rem; color: var(--accent);">
+                            Changes take effect immediately - no restart needed!
+                        </p>
                     </div>
                 </div>
 

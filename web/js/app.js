@@ -118,13 +118,16 @@ class CAMAIDashboard {
         const modal = document.getElementById('event-modal');
         if (!modal) return;
 
-        // Set modal title
+        // Set modal title - use description if available
         const title = document.getElementById('modal-title');
-        if (title) title.textContent = event.type || 'Event Details';
+        if (title) title.textContent = event.description || event.type || 'Event Details';
 
         // Set modal details
         document.getElementById('modal-type').textContent = event.type || '-';
-        document.getElementById('modal-class').textContent = event.class || '-';
+        // Show description with color if available
+        const classText = event.description || event.class || '-';
+        const colorInfo = event.color ? ` (${event.color})` : '';
+        document.getElementById('modal-class').textContent = classText + colorInfo;
         document.getElementById('modal-confidence').textContent =
             event.confidence ? `${(event.confidence * 100).toFixed(1)}%` : '-';
         document.getElementById('modal-time').textContent =
@@ -551,6 +554,11 @@ class CAMAIDashboard {
             this.updateSetting('pose', { enabled: e.target.checked });
         });
 
+        // Classifier settings
+        document.getElementById('setting-classifier-enabled')?.addEventListener('change', (e) => {
+            this.updateSetting('classifier', { enabled: e.target.checked });
+        });
+
         // Resolution settings
         document.getElementById('btn-apply-resolution')?.addEventListener('click', () => {
             this.applyResolution();
@@ -716,6 +724,9 @@ class CAMAIDashboard {
             const poseEnabled = document.getElementById('setting-pose-enabled');
             if (poseEnabled) poseEnabled.checked = settings.pose?.enabled || false;
 
+            const classifierEnabled = document.getElementById('setting-classifier-enabled');
+            if (classifierEnabled) classifierEnabled.checked = settings.classifier?.enabled !== false; // Default true
+
             // Resolution
             const resSelect = document.getElementById('setting-resolution');
             if (resSelect && settings.stream) {
@@ -763,12 +774,14 @@ class CAMAIDashboard {
                          event.type?.includes('vehicle') ? 'vehicle' : 'package';
         const icon = iconClass === 'person' ? '👤' : iconClass === 'vehicle' ? '🚗' : '📦';
         const time = new Date(event.timestamp * 1000).toLocaleTimeString();
+        // Use description if available (e.g., "black truck"), otherwise fallback to type
+        const displayName = event.description || event.type || 'Unknown';
 
         return `
             <div class="event-item clickable" data-event-index="${index}" onclick="dashboard.openEventByIndex(${index})">
                 <div class="event-icon ${iconClass}">${icon}</div>
                 <div class="event-details">
-                    <div class="event-type">${event.type || 'Unknown'}</div>
+                    <div class="event-type">${displayName}</div>
                     <div class="event-time">${time}</div>
                 </div>
             </div>
@@ -778,11 +791,15 @@ class CAMAIDashboard {
     renderEventCard(event, index) {
         const time = new Date(event.timestamp * 1000).toLocaleString();
         const confidence = event.confidence ? `${(event.confidence * 100).toFixed(0)}%` : '';
+        // Use description if available (e.g., "black truck"), otherwise fallback to class
+        const displayClass = event.description || event.class || '';
+        // Show color badge if available
+        const colorBadge = event.color ? `<span class="color-badge" style="background: ${event.color}">${event.color}</span>` : '';
         return `
             <div class="event-card clickable" data-event-index="${index}" onclick="dashboard.openEventByIndex(${index})">
                 <div class="event-type">${event.type || 'Unknown'}</div>
                 <div class="event-time">${time}</div>
-                <div class="event-class">${event.class || ''}</div>
+                <div class="event-class">${displayClass} ${colorBadge}</div>
                 ${confidence ? `<div class="event-confidence">${confidence} confidence</div>` : ''}
             </div>
         `;
