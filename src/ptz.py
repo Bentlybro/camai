@@ -35,7 +35,10 @@ class PTZController:
         self._profile_token = None
         self._connected = False
         self._last_person_time = 0
+        self._last_command_time = 0
+        self._command_interval = 0.15  # Only send commands every 150ms
         self._is_home = True
+        self._is_moving = False
 
     def connect(self) -> bool:
         """Connect to camera via ONVIF."""
@@ -88,6 +91,12 @@ class PTZController:
         if not self._connected:
             return
 
+        # Throttle commands
+        now = time.time()
+        if now - self._last_command_time < self._command_interval:
+            return
+        self._last_command_time = now
+
         try:
             request = self._ptz_service.create_type('ContinuousMove')
             request.ProfileToken = self._profile_token
@@ -97,12 +106,13 @@ class PTZController:
             }
             self._ptz_service.ContinuousMove(request)
             self._is_home = False
+            self._is_moving = True
         except Exception as e:
             logger.error(f"PTZ move error: {e}")
 
     def stop(self):
         """Stop all PTZ movement."""
-        if not self._connected:
+        if not self._connected or not self._is_moving:
             return
 
         try:
@@ -111,22 +121,14 @@ class PTZController:
             request.PanTilt = True
             request.Zoom = True
             self._ptz_service.Stop(request)
+            self._is_moving = False
         except Exception as e:
             logger.error(f"PTZ stop error: {e}")
 
     def go_home(self):
         """Return to home/preset position."""
-        if not self._connected or self._is_home:
-            return
-
-        try:
-            request = self._ptz_service.create_type('GotoHomePosition')
-            request.ProfileToken = self._profile_token
-            self._ptz_service.GotoHomePosition(request)
-            self._is_home = True
-            logger.info("PTZ returning to home position")
-        except Exception as e:
-            logger.error(f"PTZ home error: {e}")
+        # Disabled - most consumer PTZ cameras don't support this
+        pass
 
     def track_person(self, detections: list, frame_width: int, frame_height: int):
         """
