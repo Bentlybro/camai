@@ -30,7 +30,7 @@ if [ ! -f "yolo11n.engine" ]; then
         --net=host --privileged \
         -v "$(pwd)":/app -w /app \
         $IMAGE \
-        yolo export model=yolo11n.pt format=engine half=True
+        yolo export model=yolo11n.pt format=engine
     echo "Model exported!"
 else
     echo "Model already exists, skipping."
