@@ -32,7 +32,7 @@ sudo docker run -it --rm --ipc=host --runtime=nvidia \
              if [ ! -f \"\$WSDL_DIR/wsdl/devicemgmt.wsdl\" ]; then \
                echo 'Downloading ONVIF WSDL files...' && \
                git clone --depth 1 https://github.com/quatanium/python-onvif.git /tmp/onvif-wsdl && \
-               cp -r /tmp/onvif-wsdl/onvif/wsdl \"\$WSDL_DIR/\" && \
+               cp -r /tmp/onvif-wsdl/wsdl \"\$WSDL_DIR/\" && \
                rm -rf /tmp/onvif-wsdl; \
              fi && \
              python3 run.py"
