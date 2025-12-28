@@ -14,7 +14,9 @@
         </div>
         <div class="nav-links">
             <a href="#" class="nav-link active" data-page="dashboard">Dashboard</a>
+            <a href="#" class="nav-link" data-page="stats">Stats</a>
             <a href="#" class="nav-link" data-page="events">Events</a>
+            <a href="#" class="nav-link" data-page="system">System</a>
             <a href="#" class="nav-link" data-page="settings">Settings</a>
         </div>
         <div class="nav-status">
@@ -104,6 +106,25 @@
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
+                        <div class="ptz-camera-controls">
+                            <div class="camera-controls-header">
+                                <span>Camera</span>
+                            </div>
+                            <div class="camera-controls-buttons">
+                                <button class="camera-btn" id="btn-ir-light" title="Toggle IR Light">
+                                    <span class="camera-btn-icon">💡</span>
+                                    <span class="camera-btn-label">Light</span>
+                                </button>
+                                <button class="camera-btn" id="btn-night-mode" title="Toggle Night Mode">
+                                    <span class="camera-btn-icon">🌙</span>
+                                    <span class="camera-btn-label">Night</span>
+                                </button>
+                                <button class="camera-btn camera-btn-danger" id="btn-ptz-reset" title="Pan/Tilt Correction">
+                                    <span class="camera-btn-icon">🔄</span>
+                                    <span class="camera-btn-label">Reset</span>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -189,6 +210,288 @@
                 <h3>Saved Snapshots</h3>
                 <div class="snapshots-grid" id="snapshots-grid">
                     <!-- Snapshots loaded dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Page -->
+        <div id="page-stats" class="page">
+            <div class="page-header">
+                <h2>Statistics</h2>
+                <div class="stats-period">
+                    <select id="stats-period">
+                        <option value="today">Today</option>
+                        <option value="week">This Week</option>
+                        <option value="month">This Month</option>
+                    </select>
+                </div>
+            </div>
+            <div class="stats-dashboard">
+                <!-- Summary Cards -->
+                <div class="stats-summary">
+                    <div class="summary-card">
+                        <div class="summary-icon person">👤</div>
+                        <div class="summary-data">
+                            <span class="summary-value" id="stats-total-people">0</span>
+                            <span class="summary-label">People Detected</span>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-icon vehicle">🚗</div>
+                        <div class="summary-data">
+                            <span class="summary-value" id="stats-total-vehicles">0</span>
+                            <span class="summary-label">Vehicles Detected</span>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-icon package">📦</div>
+                        <div class="summary-data">
+                            <span class="summary-value" id="stats-total-packages">0</span>
+                            <span class="summary-label">Packages Detected</span>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-icon total">📊</div>
+                        <div class="summary-data">
+                            <span class="summary-value" id="stats-total-events">0</span>
+                            <span class="summary-label">Total Events</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Activity Chart -->
+                <div class="card stats-chart-card">
+                    <div class="card-header">
+                        <h3>Activity Over Time</h3>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="activity-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Hourly Breakdown -->
+                <div class="card stats-hourly-card">
+                    <div class="card-header">
+                        <h3>Busiest Hours</h3>
+                    </div>
+                    <div class="hourly-bars" id="hourly-bars">
+                        <!-- Generated by JS -->
+                    </div>
+                </div>
+
+                <!-- Recent Activity -->
+                <div class="card stats-recent-card">
+                    <div class="card-header">
+                        <h3>Detection Breakdown</h3>
+                    </div>
+                    <div class="detection-breakdown" id="detection-breakdown">
+                        <div class="breakdown-item">
+                            <span class="breakdown-label">People</span>
+                            <div class="breakdown-bar-container">
+                                <div class="breakdown-bar person" id="breakdown-person" style="width: 0%"></div>
+                            </div>
+                            <span class="breakdown-percent" id="breakdown-person-pct">0%</span>
+                        </div>
+                        <div class="breakdown-item">
+                            <span class="breakdown-label">Vehicles</span>
+                            <div class="breakdown-bar-container">
+                                <div class="breakdown-bar vehicle" id="breakdown-vehicle" style="width: 0%"></div>
+                            </div>
+                            <span class="breakdown-percent" id="breakdown-vehicle-pct">0%</span>
+                        </div>
+                        <div class="breakdown-item">
+                            <span class="breakdown-label">Packages</span>
+                            <div class="breakdown-bar-container">
+                                <div class="breakdown-bar package" id="breakdown-package" style="width: 0%"></div>
+                            </div>
+                            <span class="breakdown-percent" id="breakdown-package-pct">0%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Stats -->
+                <div class="card stats-system-card">
+                    <div class="card-header">
+                        <h3>System Performance</h3>
+                    </div>
+                    <div class="system-stats">
+                        <div class="system-stat">
+                            <span class="system-label">Average FPS</span>
+                            <span class="system-value" id="stats-avg-fps">--</span>
+                        </div>
+                        <div class="system-stat">
+                            <span class="system-label">Average Inference</span>
+                            <span class="system-value" id="stats-avg-inference">--</span>
+                        </div>
+                        <div class="system-stat">
+                            <span class="system-label">Total Frames</span>
+                            <span class="system-value" id="stats-total-frames">--</span>
+                        </div>
+                        <div class="system-stat">
+                            <span class="system-label">Uptime</span>
+                            <span class="system-value" id="stats-uptime">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Page -->
+        <div id="page-system" class="page">
+            <div class="page-header">
+                <h2>System Monitor</h2>
+                <span class="system-hostname" id="system-hostname">--</span>
+            </div>
+
+            <div class="system-grid">
+                <!-- CPU Card -->
+                <div class="card system-card">
+                    <div class="card-header">
+                        <h3>CPU</h3>
+                        <span class="usage-badge" id="cpu-badge">--%</span>
+                    </div>
+                    <div class="system-card-content">
+                        <div class="usage-bar-container">
+                            <div class="usage-bar cpu-bar" id="cpu-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="system-details">
+                            <div class="detail-item">
+                                <span class="detail-label">Cores</span>
+                                <span class="detail-value" id="cpu-cores">--</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Load Avg</span>
+                                <span class="detail-value" id="cpu-load">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Memory Card -->
+                <div class="card system-card">
+                    <div class="card-header">
+                        <h3>Memory</h3>
+                        <span class="usage-badge" id="mem-badge">--%</span>
+                    </div>
+                    <div class="system-card-content">
+                        <div class="usage-bar-container">
+                            <div class="usage-bar mem-bar" id="mem-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="system-details">
+                            <div class="detail-item">
+                                <span class="detail-label">Used</span>
+                                <span class="detail-value" id="mem-used">-- GB</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Total</span>
+                                <span class="detail-value" id="mem-total">-- GB</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GPU Card -->
+                <div class="card system-card">
+                    <div class="card-header">
+                        <h3>GPU</h3>
+                        <span class="usage-badge" id="gpu-badge">--%</span>
+                    </div>
+                    <div class="system-card-content">
+                        <div class="usage-bar-container">
+                            <div class="usage-bar gpu-bar" id="gpu-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="system-details">
+                            <div class="detail-item">
+                                <span class="detail-label">Name</span>
+                                <span class="detail-value" id="gpu-name">--</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Memory</span>
+                                <span class="detail-value" id="gpu-mem">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Disk Card -->
+                <div class="card system-card">
+                    <div class="card-header">
+                        <h3>Disk</h3>
+                        <span class="usage-badge" id="disk-badge">--%</span>
+                    </div>
+                    <div class="system-card-content">
+                        <div class="usage-bar-container">
+                            <div class="usage-bar disk-bar" id="disk-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="system-details">
+                            <div class="detail-item">
+                                <span class="detail-label">Used</span>
+                                <span class="detail-value" id="disk-used">-- GB</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Free</span>
+                                <span class="detail-value" id="disk-free">-- GB</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Temperature Card -->
+                <div class="card system-card system-card-wide">
+                    <div class="card-header">
+                        <h3>Temperature</h3>
+                        <span class="temp-badge" id="temp-badge">--</span>
+                    </div>
+                    <div class="system-card-content">
+                        <div class="temp-grid" id="temp-grid">
+                            <!-- Temperature sensors populated by JS -->
+                            <div class="temp-item">
+                                <span class="temp-label">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Network Card -->
+                <div class="card system-card system-card-wide">
+                    <div class="card-header">
+                        <h3>Network</h3>
+                    </div>
+                    <div class="system-card-content">
+                        <div class="network-grid" id="network-grid">
+                            <!-- Network interfaces populated by JS -->
+                            <div class="network-item">
+                                <span class="network-label">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Info Card -->
+                <div class="card system-card system-card-full">
+                    <div class="card-header">
+                        <h3>System Information</h3>
+                    </div>
+                    <div class="system-card-content">
+                        <div class="sysinfo-grid">
+                            <div class="sysinfo-item">
+                                <span class="sysinfo-label">Hostname</span>
+                                <span class="sysinfo-value" id="sysinfo-hostname">--</span>
+                            </div>
+                            <div class="sysinfo-item">
+                                <span class="sysinfo-label">Uptime</span>
+                                <span class="sysinfo-value" id="sysinfo-uptime">--</span>
+                            </div>
+                            <div class="sysinfo-item">
+                                <span class="sysinfo-label">Kernel</span>
+                                <span class="sysinfo-value" id="sysinfo-kernel">--</span>
+                            </div>
+                            <div class="sysinfo-item">
+                                <span class="sysinfo-label">Model</span>
+                                <span class="sysinfo-value" id="sysinfo-model">--</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -318,6 +621,60 @@
                             <p class="form-hint">Higher resolution = better face zoom quality but slower FPS.</p>
                         </div>
                         <button class="btn btn-primary" id="btn-apply-resolution">Apply Resolution</button>
+                    </div>
+                </div>
+
+                <!-- Notifications -->
+                <div class="card settings-section">
+                    <div class="card-header">
+                        <h3>Notifications</h3>
+                    </div>
+                    <div class="settings-form">
+                        <!-- Discord -->
+                        <div class="notification-section">
+                            <div class="form-group">
+                                <label class="toggle-label">
+                                    <span>Discord Notifications</span>
+                                    <input type="checkbox" id="setting-discord-enabled">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-discord-webhook">Discord Webhook URL</label>
+                                <input type="text" id="setting-discord-webhook" class="form-input" placeholder="https://discord.com/api/webhooks/...">
+                            </div>
+                            <button class="btn btn-small" id="btn-test-discord">Test Discord</button>
+                        </div>
+
+                        <hr class="section-divider">
+
+                        <!-- MQTT -->
+                        <div class="notification-section">
+                            <div class="form-group">
+                                <label class="toggle-label">
+                                    <span>MQTT (Home Assistant)</span>
+                                    <input type="checkbox" id="setting-mqtt-enabled">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-mqtt-broker">MQTT Broker</label>
+                                <input type="text" id="setting-mqtt-broker" class="form-input" placeholder="192.168.0.100">
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-mqtt-port">MQTT Port</label>
+                                <input type="number" id="setting-mqtt-port" class="form-input" value="1883">
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-mqtt-topic">MQTT Topic</label>
+                                <input type="text" id="setting-mqtt-topic" class="form-input" value="camai/events">
+                            </div>
+                            <button class="btn btn-small" id="btn-test-mqtt">Test MQTT</button>
+                        </div>
+
+                        <hr class="section-divider">
+
+                        <button class="btn btn-primary" id="btn-save-notifications">Save Notification Settings</button>
                     </div>
                 </div>
 

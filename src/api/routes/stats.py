@@ -15,6 +15,44 @@ def set_state(state: dict):
     _state = state
 
 
+def parse_timestamp(ts):
+    """Parse timestamp to datetime (handles string, float, datetime)."""
+    if not ts:
+        return None
+    if isinstance(ts, datetime):
+        return ts
+    if isinstance(ts, (int, float)):
+        try:
+            return datetime.fromtimestamp(ts)
+        except:
+            return None
+    if isinstance(ts, str):
+        try:
+            return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except:
+            pass
+        # Try parsing as float string
+        try:
+            return datetime.fromtimestamp(float(ts))
+        except:
+            pass
+    return None
+
+
+def format_uptime(seconds: float) -> str:
+    """Format seconds into human-readable uptime."""
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    elif seconds < 3600:
+        mins = int(seconds / 60)
+        secs = int(seconds % 60)
+        return f"{mins}m {secs}s"
+    else:
+        hours = int(seconds / 3600)
+        mins = int((seconds % 3600) / 60)
+        return f"{hours}h {mins}m"
+
+
 @router.get("")
 async def get_stats():
     """Get comprehensive stats for the dashboard."""
@@ -42,15 +80,8 @@ async def get_stats():
     type_counts = defaultdict(int)
 
     for event in events_list:
-        event_time = event.get("timestamp")
+        event_time = parse_timestamp(event.get("timestamp"))
         event_type = event.get("type", "")
-
-        # Parse timestamp if it's a string
-        if isinstance(event_time, str):
-            try:
-                event_time = datetime.fromisoformat(event_time.replace("Z", "+00:00"))
-            except:
-                continue
 
         # Check if event is from today
         if event_time and event_time >= today_start:
@@ -122,7 +153,11 @@ async def get_summary():
     now = datetime.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    total_today = sum(1 for e in events_list if parse_timestamp(e.get("timestamp")) >= today_start)
+    def is_today(e):
+        ts = parse_timestamp(e.get("timestamp"))
+        return ts is not None and ts >= today_start
+
+    total_today = sum(1 for e in events_list if is_today(e))
 
     return {
         "events_today": total_today,
@@ -174,29 +209,3 @@ async def get_history(days: int = 7):
         })
 
     return {"history": history}
-
-
-def parse_timestamp(ts):
-    """Parse timestamp string to datetime."""
-    if not ts:
-        return None
-    if isinstance(ts, datetime):
-        return ts
-    try:
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except:
-        return None
-
-
-def format_uptime(seconds: float) -> str:
-    """Format seconds into human-readable uptime."""
-    if seconds < 60:
-        return f"{int(seconds)}s"
-    elif seconds < 3600:
-        mins = int(seconds / 60)
-        secs = int(seconds % 60)
-        return f"{mins}m {secs}s"
-    else:
-        hours = int(seconds / 3600)
-        mins = int((seconds % 3600) / 60)
-        return f"{hours}h {mins}m"

@@ -95,6 +95,15 @@ class CAMAIDashboard {
             this.loadNotifications();
         } else if (pageName === 'stats') {
             this.loadStatsPage();
+        } else if (pageName === 'system') {
+            this.loadSystemStats();
+            this.startSystemStatsPolling();
+        }
+
+        // Stop system stats polling when leaving that page
+        if (pageName !== 'system' && this.systemStatsInterval) {
+            clearInterval(this.systemStatsInterval);
+            this.systemStatsInterval = null;
         }
     }
 
@@ -1160,6 +1169,158 @@ class CAMAIDashboard {
                 </div>
             `;
         }).join('');
+    }
+
+    // System Stats
+    startSystemStatsPolling() {
+        if (this.systemStatsInterval) {
+            clearInterval(this.systemStatsInterval);
+        }
+        // Poll every 2 seconds
+        this.systemStatsInterval = setInterval(() => this.loadSystemStats(), 2000);
+    }
+
+    async loadSystemStats() {
+        try {
+            const response = await fetch('/api/system');
+            const data = await response.json();
+            this.updateSystemStats(data);
+        } catch (e) {
+            console.error('Failed to load system stats:', e);
+        }
+    }
+
+    updateSystemStats(data) {
+        // CPU
+        if (data.cpu) {
+            const cpuUsage = data.cpu.usage_percent || 0;
+            document.getElementById('cpu-badge').textContent = `${cpuUsage}%`;
+            document.getElementById('cpu-bar').style.width = `${cpuUsage}%`;
+            document.getElementById('cpu-cores').textContent = data.cpu.cores || '--';
+            if (data.cpu.load_avg) {
+                document.getElementById('cpu-load').textContent = data.cpu.load_avg.map(l => l.toFixed(2)).join(', ');
+            }
+        }
+
+        // Memory
+        if (data.memory) {
+            const memUsage = data.memory.usage_percent || 0;
+            document.getElementById('mem-badge').textContent = `${memUsage}%`;
+            document.getElementById('mem-bar').style.width = `${memUsage}%`;
+            document.getElementById('mem-used').textContent = `${data.memory.used_gb || 0} GB`;
+            document.getElementById('mem-total').textContent = `${data.memory.total_gb || 0} GB`;
+        }
+
+        // GPU
+        if (data.gpu) {
+            const gpuUsage = data.gpu.usage_percent || 0;
+            document.getElementById('gpu-badge').textContent = data.gpu.available ? `${gpuUsage}%` : 'N/A';
+            document.getElementById('gpu-bar').style.width = `${gpuUsage}%`;
+            document.getElementById('gpu-name').textContent = data.gpu.name || '--';
+            if (data.gpu.memory_total_mb > 0) {
+                document.getElementById('gpu-mem').textContent = data.gpu.note ||
+                    `${Math.round(data.gpu.memory_used_mb)} / ${Math.round(data.gpu.memory_total_mb)} MB`;
+            } else {
+                document.getElementById('gpu-mem').textContent = data.gpu.note || '--';
+            }
+        }
+
+        // Disk
+        if (data.disk) {
+            const diskUsage = data.disk.usage_percent || 0;
+            document.getElementById('disk-badge').textContent = `${diskUsage}%`;
+            document.getElementById('disk-bar').style.width = `${diskUsage}%`;
+            document.getElementById('disk-used').textContent = `${data.disk.used_gb || 0} GB`;
+            document.getElementById('disk-free').textContent = `${data.disk.free_gb || 0} GB`;
+        }
+
+        // Temperature
+        if (data.temperature) {
+            this.updateTemperatureDisplay(data.temperature);
+        }
+
+        // Network
+        if (data.network) {
+            this.updateNetworkDisplay(data.network);
+        }
+
+        // System Info
+        if (data.system) {
+            document.getElementById('system-hostname').textContent = data.system.hostname || '--';
+            document.getElementById('sysinfo-hostname').textContent = data.system.hostname || '--';
+            document.getElementById('sysinfo-uptime').textContent = data.system.uptime_formatted || '--';
+            document.getElementById('sysinfo-kernel').textContent = data.system.kernel || '--';
+            document.getElementById('sysinfo-model').textContent = data.system.model || (data.is_jetson ? 'Jetson Device' : 'Linux System');
+        }
+    }
+
+    updateTemperatureDisplay(temps) {
+        const container = document.getElementById('temp-grid');
+        const badge = document.getElementById('temp-badge');
+        if (!container) return;
+
+        // Get max temp for badge
+        const maxTemp = temps._max || 0;
+        badge.textContent = `${maxTemp}°C`;
+        badge.classList.toggle('hot', maxTemp > 70);
+
+        // Filter out special keys and render temps
+        const tempItems = Object.entries(temps)
+            .filter(([key]) => !key.startsWith('_'))
+            .map(([name, value]) => {
+                const tempClass = value > 70 ? 'hot' : value > 50 ? 'warm' : '';
+                return `
+                    <div class="temp-item">
+                        <span class="temp-value ${tempClass}">${value}°C</span>
+                        <span class="temp-label">${this.formatTempName(name)}</span>
+                    </div>
+                `;
+            });
+
+        if (tempItems.length === 0) {
+            container.innerHTML = '<div class="temp-item"><span class="temp-label">No sensors found</span></div>';
+        } else {
+            container.innerHTML = tempItems.join('');
+        }
+    }
+
+    formatTempName(name) {
+        // Clean up temperature sensor names
+        return name
+            .replace(/-/g, ' ')
+            .replace(/_/g, ' ')
+            .replace(/thermal/gi, '')
+            .replace(/temp/gi, '')
+            .trim() || name;
+    }
+
+    updateNetworkDisplay(network) {
+        const container = document.getElementById('network-grid');
+        if (!container) return;
+
+        const items = Object.entries(network).map(([iface, stats]) => `
+            <div class="network-item">
+                <span class="network-iface">${iface}</span>
+                <div class="network-stats">
+                    <span class="network-rx">↓ ${this.formatBytes(stats.rx_bytes)}</span>
+                    <span class="network-tx">↑ ${this.formatBytes(stats.tx_bytes)}</span>
+                </div>
+            </div>
+        `);
+
+        if (items.length === 0) {
+            container.innerHTML = '<div class="network-item"><span class="network-label">No interfaces found</span></div>';
+        } else {
+            container.innerHTML = items.join('');
+        }
+    }
+
+    formatBytes(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
 }
 

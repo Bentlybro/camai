@@ -8,7 +8,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from .routes import settings, ptz, events, streams, stats
+from .routes import settings, ptz, events, streams, stats, system
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,7 @@ app.include_router(ptz.router)
 app.include_router(events.router)
 app.include_router(streams.router)
 app.include_router(stats.router)
+app.include_router(system.router)
 
 
 @app.get("/")

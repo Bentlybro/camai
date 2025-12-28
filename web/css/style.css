@@ -1306,3 +1306,216 @@ input[type="range"]::-webkit-slider-thumb {
     border-radius: 6px;
     font-size: 0.875rem;
 }
+
+/* System Monitor Page */
+.system-hostname {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    background: var(--bg-card);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+}
+
+.system-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1.5rem;
+}
+
+.system-card {
+    min-height: 180px;
+}
+
+.system-card-wide {
+    grid-column: span 2;
+}
+
+.system-card-full {
+    grid-column: span 4;
+}
+
+.system-card-content {
+    padding: 1.25rem;
+}
+
+/* Usage Bars */
+.usage-bar-container {
+    height: 12px;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+
+.usage-bar {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.5s ease;
+}
+
+.cpu-bar { background: linear-gradient(90deg, #3498db, #2980b9); }
+.mem-bar { background: linear-gradient(90deg, #9b59b6, #8e44ad); }
+.gpu-bar { background: linear-gradient(90deg, #2ecc71, #27ae60); }
+.disk-bar { background: linear-gradient(90deg, #e67e22, #d35400); }
+
+/* Usage Badge */
+.usage-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    background: var(--bg-secondary);
+    color: var(--accent);
+}
+
+/* System Details */
+.system-details {
+    display: flex;
+    justify-content: space-between;
+}
+
+.detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.detail-item .detail-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.detail-item .detail-value {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Temperature */
+.temp-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    background: var(--bg-secondary);
+    color: var(--warning);
+}
+
+.temp-badge.hot {
+    background: rgba(255, 71, 87, 0.2);
+    color: var(--danger);
+}
+
+.temp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 1rem;
+}
+
+.temp-item {
+    background: var(--bg-secondary);
+    padding: 1rem;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.temp-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: block;
+}
+
+.temp-value.warm { color: var(--warning); }
+.temp-value.hot { color: var(--danger); }
+
+.temp-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+    display: block;
+}
+
+/* Network */
+.network-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.network-item {
+    background: var(--bg-secondary);
+    padding: 1rem;
+    border-radius: 8px;
+}
+
+.network-iface {
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+    display: block;
+}
+
+.network-stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.875rem;
+}
+
+.network-rx {
+    color: var(--success);
+}
+
+.network-tx {
+    color: var(--warning);
+}
+
+/* System Info */
+.sysinfo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.sysinfo-item {
+    background: var(--bg-secondary);
+    padding: 1rem;
+    border-radius: 8px;
+}
+
+.sysinfo-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    display: block;
+    margin-bottom: 0.25rem;
+}
+
+.sysinfo-value {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    word-break: break-all;
+}
+
+/* Responsive System Grid */
+@media (max-width: 1200px) {
+    .system-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .system-card-wide {
+        grid-column: span 2;
+    }
+    .system-card-full {
+        grid-column: span 2;
+    }
+}
+
+@media (max-width: 768px) {
+    .system-grid {
+        grid-template-columns: 1fr;
+    }
+    .system-card-wide,
+    .system-card-full {
+        grid-column: span 1;
+    }
+}
