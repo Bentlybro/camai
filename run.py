@@ -220,19 +220,20 @@ def main():
             if ptz and cfg.enable_ptz:
                 ptz.track_person(detections, frame.shape[1], frame.shape[0])
 
-            # Pose estimation (if enabled)
+            # Pose estimation (only if enabled AND people are detected)
             keypoints = None
-            if pose and cfg.enable_pose:
+            people_detected = any(d.class_name == "person" for d in detections)
+            if pose and cfg.enable_pose and people_detected:
                 keypoints = pose.estimate(frame)
 
             # Update stream frames
             elapsed = time.time() - start_time
             fps = frame_count / elapsed if elapsed > 0 else 0
-            # Only count inference time for enabled models
+            # Only count inference time for models that actually ran
             total_inf = detector.inference_ms
-            if pose and cfg.enable_pose:
+            if pose and cfg.enable_pose and people_detected:
                 total_inf += pose.inference_ms
-            if classifier and cfg.enable_classifier:
+            if classifier and cfg.enable_classifier and detections:
                 total_inf += classifier.inference_ms
 
             # Main stream gets annotations (if enabled)
