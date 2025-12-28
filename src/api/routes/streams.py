@@ -24,10 +24,30 @@ def generate_mjpeg():
         time.sleep(1/30)
 
 
+def generate_clean_mjpeg():
+    """Generate clean MJPEG stream without AI overlays."""
+    stream_server = _state["stream_server"]
+    while True:
+        if stream_server:
+            frame = stream_server.get_clean_frame()
+            if frame:
+                yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
+        time.sleep(1/30)
+
+
 @router.get("/stream")
 async def video_stream():
     """Main video stream."""
     return StreamingResponse(
         generate_mjpeg(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
+
+
+@router.get("/clean-stream")
+async def clean_video_stream():
+    """Clean video stream without AI overlays."""
+    return StreamingResponse(
+        generate_clean_mjpeg(),
         media_type="multipart/x-mixed-replace; boundary=frame"
     )

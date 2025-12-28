@@ -251,9 +251,9 @@ def main():
             # Main stream gets annotations (if enabled)
             if cfg.show_overlays:
                 annotated = annotate_frame(frame, detections, fps, total_inf, keypoints)
-                stream.update(annotated)
+                stream.update(annotated, clean_frame=frame)
             else:
-                stream.update(frame)
+                stream.update(frame, clean_frame=frame)
 
             # Update API stats periodically
             if time.time() - last_stats_update >= 0.5:
