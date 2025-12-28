@@ -29,6 +29,9 @@ from ptz import PTZController, PTZConfig
 from pose import PoseEstimator
 import api
 
+# Also import from new modular structure (api uses this internally)
+from api import app, set_state, update_stats, add_event
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
