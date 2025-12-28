@@ -196,25 +196,32 @@ async def update_ptz_settings(settings: PTZSettings):
     cfg = _state["config"]
     ptz = _state["ptz"]
 
+    # Load existing settings to merge
+    user_settings = load_user_settings()
+    existing_ptz = user_settings.get("ptz", {})
+
+    # Use existing values if not provided (keeps current track_speed/deadzone when just toggling enabled)
+    track_speed = settings.track_speed if settings.track_speed != 0.5 else existing_ptz.get("track_speed", settings.track_speed)
+    deadzone = settings.deadzone if settings.deadzone != 0.15 else existing_ptz.get("deadzone", settings.deadzone)
+
     if cfg:
         cfg.enable_ptz = settings.enabled
-        cfg.ptz_track_speed = settings.track_speed
-        cfg.ptz_deadzone = settings.deadzone
+        cfg.ptz_track_speed = track_speed
+        cfg.ptz_deadzone = deadzone
 
     if ptz and ptz.config:
-        ptz.config.track_speed = settings.track_speed
-        ptz.config.deadzone = settings.deadzone
+        ptz.config.track_speed = track_speed
+        ptz.config.deadzone = deadzone
 
     # Save to settings.json
-    user_settings = load_user_settings()
     user_settings["ptz"] = {
         "enabled": settings.enabled,
-        "track_speed": settings.track_speed,
-        "deadzone": settings.deadzone,
+        "track_speed": track_speed,
+        "deadzone": deadzone,
     }
     save_user_settings(user_settings)
 
-    logger.info(f"Updated PTZ: enabled={settings.enabled}, speed={settings.track_speed}")
+    logger.info(f"Updated PTZ: enabled={settings.enabled}, speed={track_speed}")
     return {"status": "ok"}
 
 
