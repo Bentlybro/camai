@@ -21,6 +21,10 @@ yolo export model=yolo11n.pt format=engine half=True
 ```
 
 ```
+yolo export model=yolo11n-pose.pt format=engine
+```
+
+```
 yolo export model=yolo11n.pt format=engine int8=True data=coco128.yaml
 ```
 
