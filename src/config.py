@@ -155,14 +155,15 @@ class Config:
         self.enable_stream = os.getenv("ENABLE_STREAM", "true").lower() == "true"
         self.stream_port = int(os.getenv("STREAM_PORT", "8080"))
 
-        # PTZ - prefer settings.json for tunable params
-        self.enable_ptz = user.get("ptz", {}).get("enabled", os.getenv("ENABLE_PTZ", "false").lower() == "true")
-        self.ptz_host = os.getenv("PTZ_HOST", "")
-        self.ptz_port = int(os.getenv("PTZ_PORT", "2020"))
-        self.ptz_username = os.getenv("PTZ_USERNAME", "")
-        self.ptz_password = os.getenv("PTZ_PASSWORD", "")
-        self.ptz_track_speed = user.get("ptz", {}).get("track_speed") or float(os.getenv("PTZ_TRACK_SPEED", "0.5"))
-        self.ptz_deadzone = user.get("ptz", {}).get("deadzone") or float(os.getenv("PTZ_DEADZONE", "0.15"))
+        # PTZ - prefer settings.json for all PTZ settings
+        ptz_cfg = user.get("ptz", {})
+        self.enable_ptz = ptz_cfg.get("enabled", os.getenv("ENABLE_PTZ", "false").lower() == "true")
+        self.ptz_host = ptz_cfg.get("host") or os.getenv("PTZ_HOST", "")
+        self.ptz_port = ptz_cfg.get("port") or int(os.getenv("PTZ_PORT", "2020"))
+        self.ptz_username = ptz_cfg.get("username") or os.getenv("PTZ_USERNAME", "")
+        self.ptz_password = ptz_cfg.get("password") or os.getenv("PTZ_PASSWORD", "")
+        self.ptz_track_speed = ptz_cfg.get("track_speed") or float(os.getenv("PTZ_TRACK_SPEED", "0.5"))
+        self.ptz_deadzone = ptz_cfg.get("deadzone") or float(os.getenv("PTZ_DEADZONE", "0.15"))
         self.ptz_return_home = os.getenv("PTZ_RETURN_HOME", "true").lower() == "true"
         self.ptz_home_delay = float(os.getenv("PTZ_HOME_DELAY", "10.0"))
 

@@ -79,11 +79,11 @@ def main():
     # Stream server (for frame storage, used by API)
     stream = StreamServer(cfg.stream_port)
 
-    # PTZ tracking
+    # PTZ control - connect if host is configured (manual control always available)
     ptz = None
-    if cfg.enable_ptz:
+    if cfg.ptz_host:
         ptz_config = PTZConfig(
-            enabled=True,
+            enabled=cfg.enable_ptz,  # This controls auto-tracking only
             host=cfg.ptz_host,
             port=cfg.ptz_port,
             username=cfg.ptz_username,
@@ -95,9 +95,12 @@ def main():
         )
         ptz = PTZController(ptz_config)
         if ptz.connect():
-            log.info("PTZ tracking enabled - will follow people")
+            if cfg.enable_ptz:
+                log.info("PTZ connected - auto-tracking enabled")
+            else:
+                log.info("PTZ connected - manual control only")
         else:
-            log.warning("PTZ connection failed - tracking disabled")
+            log.warning("PTZ connection failed")
             ptz = None
 
     # Load model

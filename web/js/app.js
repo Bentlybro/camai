@@ -311,6 +311,37 @@ class CAMAIDashboard {
         document.getElementById('btn-apply-resolution')?.addEventListener('click', () => {
             this.applyResolution();
         });
+
+        // PTZ connection settings
+        document.getElementById('btn-save-ptz-connection')?.addEventListener('click', () => {
+            this.savePTZConnection();
+        });
+    }
+
+    async savePTZConnection() {
+        const host = document.getElementById('setting-ptz-host')?.value || '';
+        const port = parseInt(document.getElementById('setting-ptz-port')?.value) || 2020;
+        const username = document.getElementById('setting-ptz-username')?.value || '';
+        const password = document.getElementById('setting-ptz-password')?.value || '';
+
+        try {
+            const response = await fetch('/api/settings/ptz/connection', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ host, port, username, password })
+            });
+
+            const result = await response.json();
+            if (result.status === 'ok') {
+                alert('PTZ connection saved. Please restart CAMAI to connect.');
+                document.getElementById('setting-ptz-password').value = '';
+            } else {
+                alert('Failed to save PTZ connection');
+            }
+        } catch (e) {
+            console.error('Failed to save PTZ connection:', e);
+            alert('Failed to save PTZ connection');
+        }
     }
 
     async applyResolution() {
@@ -424,6 +455,15 @@ class CAMAIDashboard {
             this.setSliderValue('setting-confidence', 'setting-confidence-value', settings.detection?.confidence || 0.5);
             this.setSliderValue('setting-iou', 'setting-iou-value', settings.detection?.iou_threshold || 0.45);
 
+            // PTZ connection
+            const ptzHost = document.getElementById('setting-ptz-host');
+            if (ptzHost) ptzHost.value = settings.ptz?.host || '';
+            const ptzPort = document.getElementById('setting-ptz-port');
+            if (ptzPort) ptzPort.value = settings.ptz?.port || 2020;
+            const ptzUsername = document.getElementById('setting-ptz-username');
+            if (ptzUsername) ptzUsername.value = settings.ptz?.username || '';
+
+            // PTZ tracking
             const ptzEnabled = document.getElementById('setting-ptz-enabled');
             if (ptzEnabled) ptzEnabled.checked = settings.ptz?.enabled || false;
             this.setSliderValue('setting-ptz-speed', 'setting-ptz-speed-value', settings.ptz?.track_speed || 0.5);

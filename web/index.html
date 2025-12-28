@@ -220,15 +220,42 @@
                 <!-- PTZ Settings -->
                 <div class="card settings-section">
                     <div class="card-header">
-                        <h3>PTZ Tracking</h3>
+                        <h3>PTZ Connection</h3>
+                    </div>
+                    <div class="settings-form">
+                        <div class="form-group">
+                            <label for="setting-ptz-host">Camera IP (ONVIF)</label>
+                            <input type="text" id="setting-ptz-host" class="form-input" placeholder="192.168.0.36">
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-ptz-port">ONVIF Port</label>
+                            <input type="number" id="setting-ptz-port" class="form-input" value="2020">
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-ptz-username">Username</label>
+                            <input type="text" id="setting-ptz-username" class="form-input" placeholder="admin">
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-ptz-password">Password</label>
+                            <input type="password" id="setting-ptz-password" class="form-input" placeholder="Leave blank to keep current">
+                        </div>
+                        <button class="btn btn-primary" id="btn-save-ptz-connection">Save & Restart Required</button>
+                    </div>
+                </div>
+
+                <!-- PTZ Tracking Settings -->
+                <div class="card settings-section">
+                    <div class="card-header">
+                        <h3>PTZ Auto-Tracking</h3>
                     </div>
                     <div class="settings-form">
                         <div class="form-group">
                             <label class="toggle-label">
-                                <span>Enable PTZ Tracking</span>
+                                <span>Enable Auto-Tracking</span>
                                 <input type="checkbox" id="setting-ptz-enabled">
                                 <span class="toggle-slider"></span>
                             </label>
+                            <p class="form-hint">Automatically follows detected people</p>
                         </div>
                         <div class="form-group">
                             <label for="setting-ptz-speed">Track Speed</label>

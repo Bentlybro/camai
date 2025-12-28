@@ -104,6 +104,13 @@ class PTZSettings(BaseModel):
     deadzone: float = 0.15
 
 
+class PTZConnectionSettings(BaseModel):
+    host: str = ""
+    port: int = 2020
+    username: str = ""
+    password: str = ""
+
+
 class PoseSettings(BaseModel):
     enabled: bool = False
 
@@ -159,6 +166,10 @@ async def get_settings():
             "enabled": cfg.enable_ptz,
             "track_speed": cfg.ptz_track_speed,
             "deadzone": cfg.ptz_deadzone,
+            "host": cfg.ptz_host,
+            "port": cfg.ptz_port,
+            "username": cfg.ptz_username,
+            "has_password": bool(cfg.ptz_password),
         },
         "pose": {
             "enabled": cfg.enable_pose,
@@ -236,6 +247,33 @@ async def update_ptz_settings(settings: PTZSettings):
 
     logger.info(f"Updated PTZ: enabled={settings.enabled}, speed={track_speed}")
     return {"status": "ok"}
+
+
+@app.post("/api/settings/ptz/connection")
+async def update_ptz_connection(settings: PTZConnectionSettings):
+    """Update PTZ connection settings (requires restart to reconnect)."""
+    cfg = _state["config"]
+
+    if cfg:
+        cfg.ptz_host = settings.host
+        cfg.ptz_port = settings.port
+        cfg.ptz_username = settings.username
+        if settings.password:  # Only update if provided
+            cfg.ptz_password = settings.password
+
+    # Save to settings.json
+    user_settings = load_user_settings()
+    if "ptz" not in user_settings:
+        user_settings["ptz"] = {}
+    user_settings["ptz"]["host"] = settings.host
+    user_settings["ptz"]["port"] = settings.port
+    user_settings["ptz"]["username"] = settings.username
+    if settings.password:
+        user_settings["ptz"]["password"] = settings.password
+    save_user_settings(user_settings)
+
+    logger.info(f"Updated PTZ connection: host={settings.host}, port={settings.port}")
+    return {"status": "ok", "note": "Restart required to reconnect PTZ"}
 
 
 @app.post("/api/settings/pose")
