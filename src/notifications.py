@@ -76,12 +76,14 @@ class NotificationManager:
 class FileLogger:
     """Log events to JSON lines file."""
 
-    def __init__(self, log_dir: str, snapshot_dir: str):
+    def __init__(self, log_dir: str, snapshot_dir: str, retention_days: int = 7):
         self.log_dir = Path(log_dir)
         self.snapshot_dir = Path(snapshot_dir)
+        self.retention_days = retention_days
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
         self._last_snapshot_path = None
+        self._last_cleanup = 0
 
     def get_snapshot_path(self, event: Event) -> str:
         """Get the API path for a snapshot."""
@@ -110,6 +112,41 @@ class FileLogger:
         log_file = self.log_dir / f"events_{datetime.now():%Y-%m-%d}.jsonl"
         with open(log_file, "a") as f:
             f.write(json.dumps(entry) + "\n")
+
+        # Run cleanup periodically (every hour)
+        now = time.time()
+        if now - self._last_cleanup > 3600:
+            self.cleanup_old_files()
+            self._last_cleanup = now
+
+    def cleanup_old_files(self):
+        """Delete snapshots and logs older than retention_days."""
+        cutoff = time.time() - (self.retention_days * 86400)
+        deleted_snapshots = 0
+        deleted_logs = 0
+
+        # Clean up old snapshots
+        if self.snapshot_dir.exists():
+            for f in self.snapshot_dir.glob("*.jpg"):
+                try:
+                    if f.stat().st_mtime < cutoff:
+                        f.unlink()
+                        deleted_snapshots += 1
+                except Exception as e:
+                    logger.debug(f"Failed to delete snapshot {f}: {e}")
+
+        # Clean up old log files
+        if self.log_dir.exists():
+            for f in self.log_dir.glob("events_*.jsonl"):
+                try:
+                    if f.stat().st_mtime < cutoff:
+                        f.unlink()
+                        deleted_logs += 1
+                except Exception as e:
+                    logger.debug(f"Failed to delete log {f}: {e}")
+
+        if deleted_snapshots > 0 or deleted_logs > 0:
+            logger.info(f"Cleanup: deleted {deleted_snapshots} snapshots, {deleted_logs} logs older than {self.retention_days} days")
 
 
 class DiscordHandler:

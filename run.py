@@ -69,8 +69,14 @@ def main():
     events = EventDetector(cfg.person_dwell_time, cfg.person_cooldown, cfg.vehicle_stop_time)
     notifier = NotificationManager()
 
-    # Setup notifications
+    # Setup notifications (with 7-day retention)
     notifier.add_file_logger(cfg.log_dir, cfg.snapshot_dir)
+
+    # Run cleanup on startup
+    if notifier._file_logger:
+        notifier._file_logger.cleanup_old_files()
+    db.cleanup_old_events(days_to_keep=7)
+
     if cfg.enable_discord and cfg.discord_webhook:
         notifier.add_discord(cfg.discord_webhook)
     if cfg.enable_mqtt:

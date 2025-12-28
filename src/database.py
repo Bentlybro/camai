@@ -347,20 +347,32 @@ class Database:
             row = cursor.fetchone()
             return dict(row) if row else {}
 
-    def cleanup_old_events(self, days_to_keep: int = 30):
-        """Delete events older than specified days."""
+    def cleanup_old_events(self, days_to_keep: int = 7):
+        """Delete events and stats older than specified days."""
         cutoff = time.time() - (days_to_keep * 86400)
+        cutoff_date = (datetime.now() - timedelta(days=days_to_keep)).strftime("%Y-%m-%d")
 
         with self._get_conn() as conn:
             cursor = conn.cursor()
 
+            # Delete old events
             cursor.execute("DELETE FROM events WHERE timestamp < ?", (cutoff,))
-            deleted = cursor.rowcount
+            deleted_events = cursor.rowcount
+
+            # Delete old hourly stats
+            cursor.execute("DELETE FROM hourly_stats WHERE date < ?", (cutoff_date,))
+            deleted_hourly = cursor.rowcount
+
+            # Delete old daily stats
+            cursor.execute("DELETE FROM daily_stats WHERE date < ?", (cutoff_date,))
+            deleted_daily = cursor.rowcount
 
             conn.commit()
-            logger.info(f"Cleaned up {deleted} events older than {days_to_keep} days")
 
-            return deleted
+            if deleted_events > 0 or deleted_hourly > 0 or deleted_daily > 0:
+                logger.info(f"Cleanup: deleted {deleted_events} events, {deleted_hourly} hourly stats, {deleted_daily} daily stats older than {days_to_keep} days")
+
+            return deleted_events
 
 
 # Singleton instance
