@@ -42,7 +42,8 @@ class PTZController:
 
     def connect(self) -> bool:
         """Connect to camera via ONVIF."""
-        if not self.config.enabled:
+        if not self.config.host:
+            logger.warning("PTZ host not configured")
             return False
 
         try:
@@ -54,6 +55,7 @@ class PTZController:
             wsdl_dir = os.path.join(onvif_path, 'wsdl')
 
             logger.info(f"Connecting to PTZ camera at {self.config.host}:{self.config.port}")
+            logger.debug(f"WSDL dir: {wsdl_dir}")
 
             self._camera = ONVIFCamera(
                 self.config.host,
@@ -80,6 +82,8 @@ class PTZController:
 
         except Exception as e:
             logger.error(f"PTZ connection failed: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
             return False
 
     def move(self, pan: float, tilt: float):
