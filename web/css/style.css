@@ -624,6 +624,88 @@ input[type="range"]::-webkit-slider-thumb {
     background: #ff6b7a;
 }
 
+.ptz-btn.ptz-home {
+    background: var(--accent);
+    color: var(--bg-primary);
+}
+
+.ptz-btn.ptz-home:hover {
+    background: var(--accent-hover);
+}
+
+/* PTZ Presets */
+.ptz-presets {
+    border-top: 1px solid var(--border);
+    padding-top: 1rem;
+    margin-top: 0.5rem;
+}
+
+.presets-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.btn-small {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-small:hover {
+    background: var(--accent);
+    color: var(--bg-primary);
+    border-color: var(--accent);
+}
+
+.presets-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.preset-btn {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.75rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.preset-btn:hover {
+    border-color: var(--accent);
+}
+
+.preset-btn .delete-preset {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    line-height: 1;
+}
+
+.preset-btn .delete-preset:hover {
+    color: var(--danger);
+}
+
+.no-presets {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
 .ptz-spacer {
     width: 50px;
     height: 50px;

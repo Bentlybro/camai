@@ -305,10 +305,97 @@ class CAMAIDashboard {
             btn.addEventListener('touchend', () => this.ptzStop());
         });
 
-        // Stop button
-        document.getElementById('ptz-stop')?.addEventListener('click', () => {
-            this.ptzStop();
+        // Home button
+        document.getElementById('ptz-home')?.addEventListener('click', () => {
+            this.ptzHome();
         });
+
+        // Save preset button
+        document.getElementById('ptz-save-preset')?.addEventListener('click', () => {
+            this.ptzSavePreset();
+        });
+
+        // Load presets
+        this.loadPTZPresets();
+    }
+
+    async ptzHome() {
+        try {
+            await fetch('/api/ptz/home', { method: 'POST' });
+        } catch (e) {
+            console.error('PTZ home failed:', e);
+        }
+    }
+
+    async loadPTZPresets() {
+        try {
+            const response = await fetch('/api/ptz/presets');
+            const presets = await response.json();
+            this.renderPTZPresets(presets);
+        } catch (e) {
+            console.error('Failed to load presets:', e);
+        }
+    }
+
+    renderPTZPresets(presets) {
+        const list = document.getElementById('ptz-presets-list');
+        if (!list) return;
+
+        if (!presets || presets.length === 0) {
+            list.innerHTML = '<span class="no-presets">No presets</span>';
+            return;
+        }
+
+        list.innerHTML = presets.map(p => `
+            <button class="preset-btn" data-token="${p.token}">
+                <span onclick="dashboard.ptzGotoPreset('${p.token}')">${p.name || p.token}</span>
+                <span class="delete-preset" onclick="event.stopPropagation(); dashboard.ptzDeletePreset('${p.token}')">&times;</span>
+            </button>
+        `).join('');
+    }
+
+    async ptzSavePreset() {
+        const name = prompt('Preset name (optional):');
+        if (name === null) return; // Cancelled
+
+        try {
+            const url = name ? `/api/ptz/presets?name=${encodeURIComponent(name)}` : '/api/ptz/presets';
+            const response = await fetch(url, { method: 'POST' });
+            const result = await response.json();
+            if (result.status === 'ok') {
+                this.loadPTZPresets();
+            } else {
+                alert('Failed to save preset');
+            }
+        } catch (e) {
+            console.error('Failed to save preset:', e);
+            alert('Failed to save preset');
+        }
+    }
+
+    async ptzGotoPreset(token) {
+        try {
+            await fetch(`/api/ptz/presets/${token}/goto`, { method: 'POST' });
+            // Update toggle to show auto-tracking is now off
+            const toggle = document.getElementById('toggle-ptz');
+            if (toggle) toggle.checked = false;
+        } catch (e) {
+            console.error('Failed to goto preset:', e);
+        }
+    }
+
+    async ptzDeletePreset(token) {
+        if (!confirm('Delete this preset?')) return;
+
+        try {
+            const response = await fetch(`/api/ptz/presets/${token}`, { method: 'DELETE' });
+            const result = await response.json();
+            if (result.status === 'ok') {
+                this.loadPTZPresets();
+            }
+        } catch (e) {
+            console.error('Failed to delete preset:', e);
+        }
     }
 
     async ptzMove(pan, tilt) {

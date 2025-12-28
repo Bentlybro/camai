@@ -79,11 +79,20 @@
                             <button class="ptz-btn" id="ptz-up" data-pan="0" data-tilt="1">&#9650;</button>
                             <div class="ptz-spacer"></div>
                             <button class="ptz-btn" id="ptz-left" data-pan="-1" data-tilt="0">&#9664;</button>
-                            <button class="ptz-btn ptz-stop" id="ptz-stop">&#9632;</button>
+                            <button class="ptz-btn ptz-home" id="ptz-home" title="Home">&#8962;</button>
                             <button class="ptz-btn" id="ptz-right" data-pan="1" data-tilt="0">&#9654;</button>
                             <div class="ptz-spacer"></div>
                             <button class="ptz-btn" id="ptz-down" data-pan="0" data-tilt="-1">&#9660;</button>
                             <div class="ptz-spacer"></div>
+                        </div>
+                        <div class="ptz-presets">
+                            <div class="presets-header">
+                                <span>Presets</span>
+                                <button class="btn-small" id="ptz-save-preset" title="Save current position">+ Save</button>
+                            </div>
+                            <div class="presets-list" id="ptz-presets-list">
+                                <span class="no-presets">No presets</span>
+                            </div>
                         </div>
                         <div class="ptz-auto">
                             <label class="toggle-label">
