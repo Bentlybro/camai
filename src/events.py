@@ -117,6 +117,12 @@ class EventDetector:
         self._startup_scan_done = False
         self._startup_scan_delay = 10.0  # Wait 10 seconds then scan for existing parked cars
 
+        # Repeated detection tracker - catches flickering detections at night
+        # If same position triggers vehicle_detected 2+ times in 2 min, auto-register as parked
+        self._detection_history: Dict[int, list] = {}  # position_id -> [timestamps]
+        self._repeated_detection_threshold = 2  # 2 detections at same spot = parked
+        self._repeated_detection_window = 120.0  # Within 2 minutes
+
     def on_event(self, callback: Callable[[Event], None]):
         """Register event callback."""
         self._callbacks.append(callback)
@@ -423,7 +429,37 @@ class EventDetector:
                     events.append(event)
                     self._fire(event)
                 elif det.class_name in ("car", "truck"):
-                    # Only fire vehicle_detected for genuinely new vehicles (not parked/stopped)
+                    # Check for repeated detections at same position (flickering at night)
+                    pos_id = self._get_position_id(det.bbox)
+
+                    # Track detection history
+                    if pos_id not in self._detection_history:
+                        self._detection_history[pos_id] = []
+
+                    # Clean old entries and add new
+                    self._detection_history[pos_id] = [
+                        t for t in self._detection_history[pos_id]
+                        if now - t < self._repeated_detection_window
+                    ]
+                    self._detection_history[pos_id].append(now)
+
+                    # If repeated detection, auto-register as parked (flickering car)
+                    if len(self._detection_history[pos_id]) >= self._repeated_detection_threshold:
+                        if pos_id not in self._parked_vehicles:
+                            self._parked_vehicles[pos_id] = {
+                                "bbox": det.bbox,
+                                "first_seen": self._detection_history[pos_id][0],
+                                "last_seen": now,
+                                "class": det.class_name,
+                                "signature": det.signature,
+                                "color": det.color,
+                            }
+                            logger.info(f"Auto-registered flickering vehicle as PARKED at {pos_id}")
+                            # Clear history since it's now parked
+                            self._detection_history[pos_id] = []
+                        continue  # Don't fire event - it's now parked
+
+                    # Only fire vehicle_detected for genuinely new vehicles
                     if now - self._last_vehicle_detected >= self._vehicle_detected_cooldown:
                         self._last_vehicle_detected = now
                         event = Event(EventType.VEHICLE_DETECTED, now, det.class_name, det.confidence, det.bbox,
