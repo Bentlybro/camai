@@ -1,8 +1,10 @@
 """Events and snapshots API routes."""
 import logging
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
+
+from ...database import get_database
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["events"])
@@ -16,9 +18,33 @@ def set_state(state: dict):
 
 
 @router.get("/api/events")
-async def get_events(limit: int = 50):
-    """Get recent events."""
-    return _state["recent_events"][:limit]
+async def get_events(
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    event_type: str = None,
+    since: float = None
+):
+    """Get events from database with optional filtering."""
+    try:
+        db = get_database()
+        events = db.get_events(limit=limit, offset=offset, event_type=event_type, since=since)
+        return events
+    except Exception as e:
+        logger.warning(f"Failed to query events from database: {e}")
+        # Fallback to in-memory events
+        return _state["recent_events"][:limit]
+
+
+@router.get("/api/events/count")
+async def get_event_count(since: float = None):
+    """Get total event count."""
+    try:
+        db = get_database()
+        count = db.get_event_count(since=since)
+        return {"count": count}
+    except Exception as e:
+        logger.warning(f"Failed to get event count: {e}")
+        return {"count": len(_state["recent_events"])}
 
 
 @router.get("/api/snapshots")

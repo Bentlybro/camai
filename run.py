@@ -28,6 +28,7 @@ from stream import StreamServer, annotate_frame
 from ptz import PTZController, PTZConfig
 from pose import PoseEstimator
 from classifier import ImageClassifier
+from database import init_database, get_database
 import api
 
 # Also import from new modular structure (api uses this internally)
@@ -56,6 +57,10 @@ def main():
     log.info("=" * 50)
     log.info("CAMAI - Jetson AI Camera System")
     log.info("=" * 50)
+
+    # Initialize database
+    db = init_database()
+    log.info(f"Database initialized: {db.db_path}")
 
     # Initialize components
     capture = RTSPCapture(cfg.rtsp_url, cfg.capture_width, cfg.capture_height)

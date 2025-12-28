@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from .routes import settings, ptz, events, streams, stats, system
+from ..database import get_database
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +66,16 @@ def update_stats(fps: float, inference_ms: float, frame_count: int, tracked: int
 
 
 def add_event(event_dict: dict):
-    """Add event to recent events list."""
+    """Add event to recent events list and database."""
     _state["recent_events"].insert(0, event_dict)
     _state["recent_events"] = _state["recent_events"][:100]
+
+    # Save to database
+    try:
+        db = get_database()
+        db.add_event(event_dict)
+    except Exception as e:
+        logger.warning(f"Failed to save event to database: {e}")
 
 
 # Initialize route state

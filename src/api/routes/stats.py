@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from fastapi import APIRouter, HTTPException
 
+from ...database import get_database
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
@@ -61,56 +63,83 @@ async def get_stats():
 
     # Get runtime stats from _state
     runtime_stats = _state.get("stats", {})
-    events_list = _state.get("recent_events", [])
 
-    # Calculate summary stats
-    now = datetime.now()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Try to get stats from database first
+    try:
+        db = get_database()
+        today_stats = db.get_today_stats()
+        hourly_stats = db.get_hourly_stats()
 
-    # Count events by type today
-    person_events_today = 0
-    vehicle_events_today = 0
-    package_events_today = 0
-    total_events_today = 0
+        # Build hourly data for chart
+        hourly_data = []
+        for h in hourly_stats:
+            hourly_data.append({
+                "hour": h["hour"],
+                "label": f"{h['hour']:02d}:00",
+                "count": h["count"]
+            })
 
-    # Hourly breakdown for today (last 24 hours)
-    hourly_counts = defaultdict(int)
+        summary = {
+            "total_events_today": today_stats.get("total_events", 0),
+            "person_events": today_stats.get("person_events", 0),
+            "vehicle_events": today_stats.get("vehicle_events", 0),
+            "package_events": today_stats.get("package_events", 0),
+        }
+        detection_breakdown = {
+            "person": today_stats.get("person_events", 0),
+            "vehicle": today_stats.get("vehicle_events", 0),
+            "package": today_stats.get("package_events", 0),
+        }
+    except Exception as e:
+        logger.warning(f"Failed to get stats from database: {e}")
+        # Fallback to in-memory calculation
+        events_list = _state.get("recent_events", [])
+        now = datetime.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # Detection type breakdown
-    type_counts = defaultdict(int)
+        person_events_today = 0
+        vehicle_events_today = 0
+        package_events_today = 0
+        total_events_today = 0
+        hourly_counts = defaultdict(int)
 
-    for event in events_list:
-        event_time = parse_timestamp(event.get("timestamp"))
-        event_type = event.get("type", "")
+        for event in events_list:
+            event_time = parse_timestamp(event.get("timestamp"))
+            event_type = event.get("type", "")
 
-        # Check if event is from today
-        if event_time and event_time >= today_start:
-            total_events_today += 1
+            if event_time and event_time >= today_start:
+                total_events_today += 1
+                hour = event_time.hour
+                hourly_counts[hour] += 1
 
-            if "person" in event_type:
-                person_events_today += 1
-                type_counts["person"] += 1
-            elif "vehicle" in event_type:
-                vehicle_events_today += 1
-                type_counts["vehicle"] += 1
-            elif "package" in event_type:
-                package_events_today += 1
-                type_counts["package"] += 1
+                if "person" in event_type:
+                    person_events_today += 1
+                elif "vehicle" in event_type:
+                    vehicle_events_today += 1
+                elif "package" in event_type:
+                    package_events_today += 1
 
-            # Hourly breakdown
-            hour = event_time.hour
-            hourly_counts[hour] += 1
+        hourly_data = []
+        for hour in range(24):
+            hourly_data.append({
+                "hour": hour,
+                "label": f"{hour:02d}:00",
+                "count": hourly_counts.get(hour, 0)
+            })
 
-    # Build hourly data for chart (24 hours)
-    hourly_data = []
-    for hour in range(24):
-        hourly_data.append({
-            "hour": hour,
-            "label": f"{hour:02d}:00",
-            "count": hourly_counts.get(hour, 0)
-        })
+        summary = {
+            "total_events_today": total_events_today,
+            "person_events": person_events_today,
+            "vehicle_events": vehicle_events_today,
+            "package_events": package_events_today,
+        }
+        detection_breakdown = {
+            "person": person_events_today,
+            "vehicle": vehicle_events_today,
+            "package": package_events_today,
+        }
 
-    # System stats
+    # System stats (always from runtime)
     uptime = runtime_stats.get("uptime", 0)
     fps = runtime_stats.get("fps", 0)
     inference_ms = runtime_stats.get("inference_ms", 0)
@@ -118,18 +147,9 @@ async def get_stats():
     tracked_count = runtime_stats.get("tracked_count", 0)
 
     return {
-        "summary": {
-            "total_events_today": total_events_today,
-            "person_events": person_events_today,
-            "vehicle_events": vehicle_events_today,
-            "package_events": package_events_today,
-        },
+        "summary": summary,
         "hourly": hourly_data,
-        "detection_breakdown": {
-            "person": type_counts.get("person", 0),
-            "vehicle": type_counts.get("vehicle", 0),
-            "package": type_counts.get("package", 0),
-        },
+        "detection_breakdown": detection_breakdown,
         "system": {
             "uptime_seconds": uptime,
             "uptime_formatted": format_uptime(uptime),
@@ -173,10 +193,29 @@ async def get_history(days: int = 7):
     if not _state:
         raise HTTPException(status_code=503, detail="State not initialized")
 
+    # Try to get from database first
+    try:
+        db = get_database()
+        daily_stats = db.get_daily_stats(days=days)
+
+        history = []
+        for stat in daily_stats:
+            history.append({
+                "date": stat["date"],
+                "person": stat.get("person_events", 0),
+                "vehicle": stat.get("vehicle_events", 0),
+                "package": stat.get("package_events", 0),
+                "total": stat.get("total_events", 0),
+            })
+
+        return {"history": history}
+    except Exception as e:
+        logger.warning(f"Failed to get history from database: {e}")
+
+    # Fallback to in-memory
     events_list = _state.get("recent_events", [])
     now = datetime.now()
 
-    # Daily counts for past N days
     daily_counts = defaultdict(lambda: {"person": 0, "vehicle": 0, "package": 0, "total": 0})
 
     for event in events_list:
@@ -184,7 +223,6 @@ async def get_history(days: int = 7):
         if not event_time:
             continue
 
-        # Check if within range
         days_ago = (now - event_time).days
         if days_ago < days:
             date_str = event_time.strftime("%Y-%m-%d")
@@ -198,7 +236,6 @@ async def get_history(days: int = 7):
             elif "package" in event_type:
                 daily_counts[date_str]["package"] += 1
 
-    # Build response with all days (even if 0 events)
     history = []
     for i in range(days - 1, -1, -1):
         date = (now - timedelta(days=i)).strftime("%Y-%m-%d")
@@ -209,3 +246,15 @@ async def get_history(days: int = 7):
         })
 
     return {"history": history}
+
+
+@router.get("/alltime")
+async def get_alltime_stats():
+    """Get all-time statistics."""
+    try:
+        db = get_database()
+        stats = db.get_all_time_stats()
+        return stats
+    except Exception as e:
+        logger.warning(f"Failed to get all-time stats: {e}")
+        return {"total_events": 0, "person_events": 0, "vehicle_events": 0, "package_events": 0}
