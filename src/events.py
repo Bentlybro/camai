@@ -71,12 +71,22 @@ class EventDetector:
 
         self._objects: Dict[int, TrackedObject] = {}
         self._next_id = 0
-        self._last_person_event = 0
+        self._last_events: Dict[str, float] = {}  # Cooldowns per event type
+        self._event_cooldown = 10.0  # Seconds between same event type
         self._callbacks: List[Callable] = []
 
     def on_event(self, callback: Callable[[Event], None]):
         """Register event callback."""
         self._callbacks.append(callback)
+
+    def _can_fire(self, event_type: str) -> bool:
+        """Check if we can fire this event type (cooldown check)."""
+        now = time.time()
+        last = self._last_events.get(event_type, 0)
+        if now - last >= self._event_cooldown:
+            self._last_events[event_type] = now
+            return True
+        return False
 
     def _fire(self, event: Event):
         """Fire event to callbacks."""
@@ -131,19 +141,19 @@ class EventDetector:
 
                 # Person dwelling
                 if obj.class_name == "person" and dwell >= self.person_dwell and not obj.reported:
-                    if now - self._last_person_event >= self.person_cooldown:
+                    if self._can_fire("person_dwelling"):
                         obj.reported = True
-                        self._last_person_event = now
                         event = Event(EventType.PERSON_DWELLING, now, "person", det.confidence, det.bbox, {"dwell": dwell})
                         events.append(event)
                         self._fire(event)
 
                 # Vehicle stopped
                 elif obj.class_name in ("car", "truck") and dwell >= self.vehicle_stop and not obj.reported:
-                    obj.reported = True
-                    event = Event(EventType.VEHICLE_STOPPED, now, obj.class_name, det.confidence, det.bbox, {"stop_time": dwell})
-                    events.append(event)
-                    self._fire(event)
+                    if self._can_fire("vehicle_stopped"):
+                        obj.reported = True
+                        event = Event(EventType.VEHICLE_STOPPED, now, obj.class_name, det.confidence, det.bbox, {"stop_time": dwell})
+                        events.append(event)
+                        self._fire(event)
 
             else:
                 # New object
@@ -151,15 +161,16 @@ class EventDetector:
                 self._next_id += 1
                 self._objects[oid] = TrackedObject(oid, det.class_name, now, now, det.bbox, det.confidence)
 
-                if det.class_name == "person":
+                # Only fire events with cooldown to prevent spam
+                if det.class_name == "person" and self._can_fire("person_detected"):
                     event = Event(EventType.PERSON_DETECTED, now, "person", det.confidence, det.bbox)
                     events.append(event)
                     self._fire(event)
-                elif det.class_name in ("car", "truck"):
+                elif det.class_name in ("car", "truck") and self._can_fire("vehicle_detected"):
                     event = Event(EventType.VEHICLE_DETECTED, now, det.class_name, det.confidence, det.bbox)
                     events.append(event)
                     self._fire(event)
-                elif det.class_name == "package":
+                elif det.class_name == "package" and self._can_fire("package_detected"):
                     event = Event(EventType.PACKAGE_DETECTED, now, "package", det.confidence, det.bbox)
                     events.append(event)
                     self._fire(event)
@@ -172,7 +183,13 @@ class EventDetector:
         return events
 
     @property
-    def tracked_count(self) -> dict:
+    def tracked_count(self) -> int:
+        """Return total number of tracked objects."""
+        return len(self._objects)
+
+    @property
+    def tracked_by_class(self) -> dict:
+        """Return counts by class."""
         counts = defaultdict(int)
         for obj in self._objects.values():
             counts[obj.class_name] += 1
