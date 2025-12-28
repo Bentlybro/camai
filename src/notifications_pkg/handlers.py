@@ -6,13 +6,149 @@ import threading
 from pathlib import Path
 from datetime import datetime
 from queue import Queue, Empty
-from typing import Optional
+from typing import Optional, Tuple
 import numpy as np
 import cv2
 
 from tracking.events import Event
 
 logger = logging.getLogger(__name__)
+
+# Face detector singleton (lazy loaded)
+_face_detector = None
+
+
+def get_face_detector():
+    """Get face detector, loading if needed."""
+    global _face_detector
+    if _face_detector is None:
+        try:
+            from core.face_detector import FaceDetector
+            _face_detector = FaceDetector(min_confidence=0.5)
+            if _face_detector.load():
+                logger.info("Face detector loaded for notifications")
+            else:
+                logger.warning("Face detector failed to load")
+                _face_detector = None
+        except Exception as e:
+            logger.warning(f"Could not load face detector: {e}")
+            _face_detector = None
+    return _face_detector
+
+
+def extract_face_crop(frame: np.ndarray, bbox: tuple, padding: float = 0.2) -> Optional[np.ndarray]:
+    """
+    Extract face from person bounding box region.
+
+    Args:
+        frame: Full frame
+        bbox: Person bounding box (x1, y1, x2, y2)
+        padding: Extra padding around detected face
+
+    Returns:
+        Cropped and resized face image, or None if no face found
+    """
+    if frame is None or not bbox:
+        return None
+
+    detector = get_face_detector()
+    if detector is None:
+        return None
+
+    try:
+        x1, y1, x2, y2 = [int(c) for c in bbox]
+        h, w = frame.shape[:2]
+
+        # Clamp to frame bounds
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(w, x2), min(h, y2)
+
+        if x2 <= x1 or y2 <= y1:
+            return None
+
+        # Crop person region
+        person_crop = frame[y1:y2, x1:x2]
+
+        # Detect face in person crop
+        face = detector.detect_largest(person_crop)
+        if face is None:
+            return None
+
+        fx1, fy1, fx2, fy2, conf = face
+        face_h = fy2 - fy1
+        face_w = fx2 - fx1
+
+        # Add padding around face
+        pad_x = int(face_w * padding)
+        pad_y = int(face_h * padding)
+
+        # Expand with padding, clamped to person crop bounds
+        ph, pw = person_crop.shape[:2]
+        fx1 = max(0, fx1 - pad_x)
+        fy1 = max(0, fy1 - pad_y)
+        fx2 = min(pw, fx2 + pad_x)
+        fy2 = min(ph, fy2 + pad_y)
+
+        face_crop = person_crop[fy1:fy2, fx1:fx2]
+
+        # Resize to standard size for display (150x150 minimum)
+        if face_crop.shape[0] < 150 or face_crop.shape[1] < 150:
+            scale = max(150 / face_crop.shape[0], 150 / face_crop.shape[1])
+            new_w = int(face_crop.shape[1] * scale)
+            new_h = int(face_crop.shape[0] * scale)
+            face_crop = cv2.resize(face_crop, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+
+        return face_crop
+
+    except Exception as e:
+        logger.debug(f"Face extraction failed: {e}")
+        return None
+
+
+def create_combined_snapshot(full_frame: np.ndarray, face_crop: np.ndarray,
+                            event: Event) -> np.ndarray:
+    """
+    Create a combined image with annotated full frame and face crop inset.
+
+    The face crop is placed in the top-right corner of the annotated frame.
+    """
+    # Annotate the full frame first
+    annotated = annotate_snapshot(full_frame, event)
+
+    if face_crop is None:
+        return annotated
+
+    h, w = annotated.shape[:2]
+    fh, fw = face_crop.shape[:2]
+
+    # Limit face crop size (max 200px or 25% of frame)
+    max_size = min(200, w // 4, h // 4)
+    if fh > max_size or fw > max_size:
+        scale = max_size / max(fh, fw)
+        fw = int(fw * scale)
+        fh = int(fh * scale)
+        face_crop = cv2.resize(face_crop, (fw, fh))
+
+    # Position in top-right corner with margin
+    margin = 10
+    x_pos = w - fw - margin
+    y_pos = margin
+
+    # Draw border around face crop
+    border = 3
+    cv2.rectangle(annotated,
+                  (x_pos - border, y_pos - border),
+                  (x_pos + fw + border, y_pos + fh + border),
+                  (0, 255, 0), border)
+
+    # Add "FACE" label
+    cv2.putText(annotated, "FACE", (x_pos, y_pos - border - 5),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+    # Overlay face crop
+    annotated[y_pos:y_pos+fh, x_pos:x_pos+fw] = face_crop
+
+    return annotated
 
 
 def annotate_snapshot(frame: np.ndarray, event: Event) -> np.ndarray:
@@ -186,9 +322,23 @@ class FileLogger:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"{event.event_type.value}_{ts}.jpg"
             path = self.snapshot_dir / filename
-            # Annotate snapshot with bounding box
-            annotated = annotate_snapshot(snapshot, event)
-            cv2.imwrite(str(path), annotated)
+
+            # For person events, try to extract face
+            face_crop = None
+            if event.class_name == "person":
+                face_crop = extract_face_crop(snapshot, event.bbox)
+                if face_crop is not None:
+                    # Save separate face crop
+                    face_filename = f"{event.event_type.value}_{ts}_face.jpg"
+                    face_path = self.snapshot_dir / face_filename
+                    cv2.imwrite(str(face_path), face_crop)
+                    entry["face_snapshot"] = str(face_path)
+                    entry["face_snapshot_path"] = f"/api/snapshots/{face_filename}"
+                    logger.debug(f"Face crop saved: {face_filename}")
+
+            # Create combined snapshot (full frame with face inset if available)
+            combined = create_combined_snapshot(snapshot, face_crop, event)
+            cv2.imwrite(str(path), combined)
             entry["snapshot"] = str(path)
             self._last_snapshot_path = f"/api/snapshots/{filename}"
         else:
@@ -266,9 +416,16 @@ class DiscordHandler:
         }
 
         if snapshot is not None:
-            # Annotate snapshot with bounding box
-            annotated = annotate_snapshot(snapshot, event)
-            _, buf = cv2.imencode('.jpg', annotated)
+            # For person events, try to extract face and create combined image
+            face_crop = None
+            if event.class_name == "person":
+                face_crop = extract_face_crop(snapshot, event.bbox)
+                if face_crop is not None:
+                    embed["fields"].append({"name": "Face", "value": "Detected ✓", "inline": True})
+
+            # Create combined snapshot (with face inset if available)
+            combined = create_combined_snapshot(snapshot, face_crop, event)
+            _, buf = cv2.imencode('.jpg', combined)
             files = {"file": ("snapshot.jpg", io.BytesIO(buf.tobytes()), "image/jpeg")}
             embed["image"] = {"url": "attachment://snapshot.jpg"}
             requests.post(self.url, data={"payload_json": json.dumps({"embeds": [embed]})}, files=files, timeout=10)

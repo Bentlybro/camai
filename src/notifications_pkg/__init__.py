@@ -5,6 +5,8 @@ from notifications_pkg.handlers import (
     DiscordHandler,
     MQTTHandler,
     annotate_snapshot,
+    extract_face_crop,
+    create_combined_snapshot,
 )
 
 __all__ = [
@@ -13,4 +15,6 @@ __all__ = [
     "DiscordHandler",
     "MQTTHandler",
     "annotate_snapshot",
+    "extract_face_crop",
+    "create_combined_snapshot",
 ]

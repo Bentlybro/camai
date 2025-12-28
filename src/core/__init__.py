@@ -1,7 +1,8 @@
-"""Core ML models - detection, classification, pose estimation."""
+"""Core ML models - detection, classification, pose estimation, face detection."""
 from core.detector import YOLODetector, Detection
 from core.classifier import ImageClassifier, ClassificationResult
 from core.pose import PoseEstimator
+from core.face_detector import FaceDetector, get_face_detector
 
 __all__ = [
     "YOLODetector",
@@ -9,4 +10,6 @@ __all__ = [
     "ImageClassifier",
     "ClassificationResult",
     "PoseEstimator",
+    "FaceDetector",
+    "get_face_detector",
 ]
