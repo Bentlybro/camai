@@ -263,6 +263,7 @@ class PTZController:
         """
         Track the largest person in frame.
         Only tracks 'person' class, ignores vehicles.
+        Returns to home (preset 1) after home_delay seconds with no person.
         """
         if not self._connected:
             return
@@ -271,14 +272,20 @@ class PTZController:
         people = [d for d in detections if d.class_name == "person"]
 
         if not people:
-            # No person detected - maybe return home
-            if self.config.return_home:
-                if time.time() - self._last_person_time > self.config.home_delay:
+            # No person detected
+            time_since_person = time.time() - self._last_person_time
+
+            if self.config.return_home and time_since_person > self.config.home_delay:
+                # Only go home once, not every frame
+                if not self._is_home:
                     self.stop()
                     self.go_home()
+                    self._is_home = True
             return
 
+        # Person detected - reset home state and update time
         self._last_person_time = time.time()
+        self._is_home = False
 
         # Find largest person (closest to camera)
         largest = max(people, key=lambda d: (d.bbox[2] - d.bbox[0]) * (d.bbox[3] - d.bbox[1]))
