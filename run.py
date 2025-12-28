@@ -27,7 +27,6 @@ from notifications import NotificationManager
 from stream import StreamServer, annotate_frame, extract_face_crop
 from ptz import PTZController, PTZConfig
 from pose import PoseEstimator
-from recorder import ClipRecorder
 import api
 
 # Also import from new modular structure (api uses this internally)
@@ -74,15 +73,7 @@ def main():
     # Stream server (for frame storage, used by API)
     stream = StreamServer(cfg.stream_port)
 
-    # Clip recorder for event videos
-    recorder = ClipRecorder(
-        output_dir=str(Path(cfg.snapshot_dir).parent / "clips"),
-        pre_seconds=3.0,
-        post_seconds=3.0,
-        fps=15
-    )
-
-    # Event callback - uses recorder
+    # Event callback
     def on_event(event):
         frame = capture.read()
 
@@ -92,17 +83,10 @@ def main():
         # Send notification (will save snapshot)
         notifier.notify(event, frame)
 
-        # Build event dict with paths
+        # Build event dict with snapshot path
         event_dict = event.to_dict()
-
-        # Add snapshot path
         if snapshot_path:
             event_dict["snapshot_path"] = snapshot_path
-
-        # Trigger clip recording
-        clip_path = recorder.trigger(event.event_type.value, event.class_name)
-        if clip_path:
-            event_dict["video_path"] = clip_path
 
         # Add to API events
         api.add_event(event_dict)
@@ -156,7 +140,6 @@ def main():
     api.set_state("ptz", ptz)
     api.set_state("pose", pose)
     api.set_state("stream_server", stream)
-    api.set_state("recorder", recorder)
 
     # Start components
     capture.start()
@@ -227,22 +210,21 @@ def main():
             fps = frame_count / elapsed if elapsed > 0 else 0
             total_inf = detector.inference_ms + (pose.inference_ms if pose else 0)
 
-            # Store raw frame (for clean face zoom fallback)
-            stream.update_raw(frame)
-
-            # Feed frame to clip recorder
-            recorder.add_frame(frame)
-
-            # Face zoom uses RAW frame (no overlays)
-            face_crop = extract_face_crop(frame, detections, keypoints)
-            stream.update_face(face_crop)
-
             # Main stream gets annotations (if enabled)
             if cfg.show_overlays:
                 annotated = annotate_frame(frame, detections, fps, total_inf, keypoints)
                 stream.update(annotated)
             else:
                 stream.update(frame)
+
+            # Face zoom - only process every 2nd frame and only if people detected
+            if frame_count % 2 == 0:
+                people = [d for d in detections if d.class_name == "person"]
+                if people:
+                    face_crop = extract_face_crop(frame, detections, keypoints)
+                    stream.update_face(face_crop)
+                else:
+                    stream.update_face(None)
 
             # Update API stats periodically
             if time.time() - last_stats_update >= 0.5:

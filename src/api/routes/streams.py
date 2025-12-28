@@ -25,14 +25,14 @@ def generate_mjpeg():
 
 
 def generate_face_mjpeg():
-    """Generate face zoom MJPEG stream (clean, no overlays)."""
+    """Generate face zoom MJPEG stream."""
     stream_server = _state["stream_server"]
     while True:
         if stream_server:
             frame = stream_server.get_face_frame()
             if frame is None:
-                # No face detected - show clean raw frame instead
-                frame = stream_server.get_raw_frame()
+                # No face detected - use main stream as fallback
+                frame = stream_server.get_frame()
             if frame:
                 yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
         time.sleep(1/30)
