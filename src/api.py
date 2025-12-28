@@ -108,6 +108,13 @@ class PoseSettings(BaseModel):
     enabled: bool = False
 
 
+class DisplaySettings(BaseModel):
+    show_overlays: bool = True
+    detect_person: bool = True
+    detect_vehicle: bool = True
+    detect_package: bool = True
+
+
 class StreamSettings(BaseModel):
     quality: int = 70
     width: int = 640
@@ -155,6 +162,12 @@ async def get_settings():
         },
         "pose": {
             "enabled": cfg.enable_pose,
+        },
+        "display": {
+            "show_overlays": cfg.show_overlays,
+            "detect_person": cfg.detect_person,
+            "detect_vehicle": cfg.detect_vehicle,
+            "detect_package": cfg.detect_package,
         },
         "stream": {
             "quality": 70,
@@ -240,6 +253,34 @@ async def update_pose_settings(settings: PoseSettings):
 
     logger.info(f"Updated pose: enabled={settings.enabled}")
     return {"status": "ok", "note": "Restart required for pose model changes"}
+
+
+@app.post("/api/settings/display")
+async def update_display_settings(settings: DisplaySettings):
+    """Update display/detection toggle settings."""
+    cfg = _state["config"]
+
+    if cfg:
+        cfg.show_overlays = settings.show_overlays
+        cfg.detect_person = settings.detect_person
+        cfg.detect_vehicle = settings.detect_vehicle
+        cfg.detect_package = settings.detect_package
+
+    # Save to settings.json
+    user_settings = load_user_settings()
+    user_settings["display"] = {
+        "show_overlays": settings.show_overlays,
+    }
+    # Also save detection toggles under detection
+    if "detection" not in user_settings:
+        user_settings["detection"] = {}
+    user_settings["detection"]["detect_person"] = settings.detect_person
+    user_settings["detection"]["detect_vehicle"] = settings.detect_vehicle
+    user_settings["detection"]["detect_package"] = settings.detect_package
+    save_user_settings(user_settings)
+
+    logger.info(f"Updated display: overlays={settings.show_overlays}, person={settings.detect_person}, vehicle={settings.detect_vehicle}, package={settings.detect_package}")
+    return {"status": "ok"}
 
 
 @app.post("/api/settings/stream")
@@ -401,13 +442,14 @@ def generate_mjpeg():
 
 
 def generate_face_mjpeg():
-    """Generate face zoom MJPEG stream."""
+    """Generate face zoom MJPEG stream (clean, no overlays)."""
     stream_server = _state["stream_server"]
     while True:
         if stream_server:
             frame = stream_server.get_face_frame()
             if frame is None:
-                frame = stream_server.get_frame()
+                # No face detected - show clean raw frame instead
+                frame = stream_server.get_raw_frame()
             if frame:
                 yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
         time.sleep(1/30)

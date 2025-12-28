@@ -164,7 +164,17 @@ def main():
             frame_count += 1
 
             # Detect
-            detections = detector.detect(frame)
+            all_detections = detector.detect(frame)
+
+            # Filter detections based on toggles
+            detections = []
+            for d in all_detections:
+                if d.class_name == "person" and cfg.detect_person:
+                    detections.append(d)
+                elif d.class_name in ("car", "truck") and cfg.detect_vehicle:
+                    detections.append(d)
+                elif d.class_name == "package" and cfg.detect_package:
+                    detections.append(d)
 
             # Update events
             _ = events.update(detections, frame.shape[1], frame.shape[0])
@@ -183,13 +193,19 @@ def main():
             fps = frame_count / elapsed if elapsed > 0 else 0
             total_inf = detector.inference_ms + (pose.inference_ms if pose else 0)
 
+            # Store raw frame (for clean face zoom fallback)
+            stream.update_raw(frame)
+
             # Face zoom uses RAW frame (no overlays)
             face_crop = extract_face_crop(frame, detections, keypoints)
             stream.update_face(face_crop)
 
-            # Main stream gets annotations
-            annotated = annotate_frame(frame, detections, fps, total_inf, keypoints)
-            stream.update(annotated)
+            # Main stream gets annotations (if enabled)
+            if cfg.show_overlays:
+                annotated = annotate_frame(frame, detections, fps, total_inf, keypoints)
+                stream.update(annotated)
+            else:
+                stream.update(frame)
 
             # Update API stats periodically
             if time.time() - last_stats_update >= 0.5:

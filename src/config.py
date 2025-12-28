@@ -62,6 +62,14 @@ class Config:
         24: "package", 26: "package", 28: "package"
     })
 
+    # Detection toggles (which classes to detect)
+    detect_person: bool = True
+    detect_vehicle: bool = True
+    detect_package: bool = True
+
+    # Display options
+    show_overlays: bool = True
+
     # Events
     person_dwell_time: float = 3.0
     person_cooldown: float = 30.0
@@ -116,6 +124,16 @@ class Config:
         # Pose - prefer settings.json
         self.enable_pose = user.get("pose", {}).get("enabled", os.getenv("ENABLE_POSE", "false").lower() == "true")
         self.pose_model_path = os.getenv("POSE_MODEL_PATH", "yolo11n-pose.engine")
+
+        # Detection toggles - prefer settings.json
+        detection_cfg = user.get("detection", {})
+        self.detect_person = detection_cfg.get("detect_person", True)
+        self.detect_vehicle = detection_cfg.get("detect_vehicle", True)
+        self.detect_package = detection_cfg.get("detect_package", True)
+
+        # Display options - prefer settings.json
+        display_cfg = user.get("display", {})
+        self.show_overlays = display_cfg.get("show_overlays", True)
 
         # Events - from .env
         self.person_dwell_time = float(os.getenv("PERSON_DWELL_TIME", "3.0"))

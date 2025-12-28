@@ -133,7 +133,7 @@ class CAMAIDashboard {
         document.getElementById('stat-inference').textContent = stats.inference_ms || '--';
         document.getElementById('stat-frames').textContent = this.formatNumber(stats.frame_count) || '--';
         document.getElementById('stat-tracked').textContent = stats.tracked_objects || '--';
-        document.getElementById('stat-uptime').textContent = stats.uptime || '--';
+        document.getElementById('stat-uptime').textContent = this.formatUptime(stats.uptime) || '--';
 
         document.getElementById('fps-badge').textContent = `${stats.fps || '--'} FPS`;
     }
@@ -142,6 +142,25 @@ class CAMAIDashboard {
         if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
         if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
         return num;
+    }
+
+    formatUptime(seconds) {
+        if (!seconds) return '--';
+
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+
+        if (days > 0) {
+            return `${days}d ${hours}h`;
+        } else if (hours > 0) {
+            return `${hours}h ${mins}m`;
+        } else if (mins > 0) {
+            return `${mins}m ${secs}s`;
+        } else {
+            return `${secs}s`;
+        }
     }
 
     // PTZ Controls
@@ -228,6 +247,12 @@ class CAMAIDashboard {
         document.getElementById('toggle-pose')?.addEventListener('change', (e) => {
             this.updateSetting('pose', { enabled: e.target.checked });
         });
+
+        // Display/Detection toggles
+        document.getElementById('toggle-overlays')?.addEventListener('change', () => this.updateDisplaySettings());
+        document.getElementById('toggle-person')?.addEventListener('change', () => this.updateDisplaySettings());
+        document.getElementById('toggle-vehicle')?.addEventListener('change', () => this.updateDisplaySettings());
+        document.getElementById('toggle-package')?.addEventListener('change', () => this.updateDisplaySettings());
 
         // Confidence slider on dashboard
         const confSlider = document.getElementById('slider-confidence');
@@ -335,6 +360,15 @@ class CAMAIDashboard {
         });
     }
 
+    updateDisplaySettings() {
+        this.updateSetting('display', {
+            show_overlays: document.getElementById('toggle-overlays')?.checked ?? true,
+            detect_person: document.getElementById('toggle-person')?.checked ?? true,
+            detect_vehicle: document.getElementById('toggle-vehicle')?.checked ?? true,
+            detect_package: document.getElementById('toggle-package')?.checked ?? true
+        });
+    }
+
     async updateSetting(category, settings) {
         try {
             const response = await fetch(`/api/settings/${category}`, {
@@ -365,6 +399,19 @@ class CAMAIDashboard {
 
             const poseToggle = document.getElementById('toggle-pose');
             if (poseToggle) poseToggle.checked = settings.pose?.enabled || false;
+
+            // Display toggles
+            const overlaysToggle = document.getElementById('toggle-overlays');
+            if (overlaysToggle) overlaysToggle.checked = settings.display?.show_overlays ?? true;
+
+            const personToggle = document.getElementById('toggle-person');
+            if (personToggle) personToggle.checked = settings.display?.detect_person ?? true;
+
+            const vehicleToggle = document.getElementById('toggle-vehicle');
+            if (vehicleToggle) vehicleToggle.checked = settings.display?.detect_vehicle ?? true;
+
+            const packageToggle = document.getElementById('toggle-package');
+            if (packageToggle) packageToggle.checked = settings.display?.detect_package ?? true;
 
             const confSlider = document.getElementById('slider-confidence');
             const confValue = document.getElementById('confidence-value');
