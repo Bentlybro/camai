@@ -657,3 +657,160 @@ input[type="range"]::-webkit-slider-thumb {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-secondary);
 }
+
+/* Modal */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+}
+
+.modal.active {
+    display: flex;
+}
+
+.modal-content {
+    background: var(--bg-card);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    max-width: 800px;
+    width: 100%;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.modal-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.2s;
+}
+
+.modal-close:hover {
+    color: var(--text-primary);
+}
+
+.modal-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+}
+
+.modal-media {
+    background: #000;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-media img,
+.modal-media video {
+    max-width: 100%;
+    max-height: 400px;
+    object-fit: contain;
+}
+
+.modal-media .no-media {
+    color: var(--text-secondary);
+    padding: 3rem;
+    text-align: center;
+}
+
+.modal-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.detail-label {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.detail-value {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Clickable events */
+.event-item.clickable,
+.event-card.clickable {
+    cursor: pointer;
+    transition: background 0.2s, transform 0.15s;
+}
+
+.event-item.clickable:hover {
+    background: var(--bg-secondary);
+}
+
+.event-card.clickable:hover {
+    transform: scale(1.02);
+    border-color: var(--accent);
+}
+
+/* Event card improvements */
+.event-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    transition: all 0.2s;
+}
+
+.event-card .event-type {
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.event-card .event-time {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.event-card .event-class {
+    font-size: 0.75rem;
+    color: var(--accent);
+}
+
+.event-card .event-confidence {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}

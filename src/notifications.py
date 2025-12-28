@@ -22,10 +22,18 @@ class NotificationManager:
         self._queue = Queue()
         self._running = False
         self._thread = None
+        self._file_logger = None
 
     def add_file_logger(self, log_dir: str = "logs", snapshot_dir: str = "snapshots"):
         """Add file logging handler."""
-        self._handlers.append(FileLogger(log_dir, snapshot_dir))
+        self._file_logger = FileLogger(log_dir, snapshot_dir)
+        self._handlers.append(self._file_logger)
+
+    def get_snapshot_path(self, event: 'Event', frame) -> Optional[str]:
+        """Get the snapshot path that would be saved for an event."""
+        if self._file_logger and frame is not None:
+            return self._file_logger.get_snapshot_path(event)
+        return None
 
     def add_discord(self, webhook_url: str):
         """Add Discord webhook handler."""
@@ -73,6 +81,13 @@ class FileLogger:
         self.snapshot_dir = Path(snapshot_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
+        self._last_snapshot_path = None
+
+    def get_snapshot_path(self, event: Event) -> str:
+        """Get the API path for a snapshot."""
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{event.event_type.value}_{ts}.jpg"
+        return f"/api/snapshots/{filename}"
 
     def send(self, event: Event, snapshot: np.ndarray = None):
         import cv2
@@ -83,9 +98,13 @@ class FileLogger:
         # Save snapshot
         if snapshot is not None:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            path = self.snapshot_dir / f"{event.event_type.value}_{ts}.jpg"
+            filename = f"{event.event_type.value}_{ts}.jpg"
+            path = self.snapshot_dir / filename
             cv2.imwrite(str(path), snapshot)
             entry["snapshot"] = str(path)
+            self._last_snapshot_path = f"/api/snapshots/{filename}"
+        else:
+            self._last_snapshot_path = None
 
         # Append to log
         log_file = self.log_dir / f"events_{datetime.now():%Y-%m-%d}.jsonl"

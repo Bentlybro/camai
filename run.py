@@ -27,6 +27,7 @@ from notifications import NotificationManager
 from stream import StreamServer, annotate_frame, extract_face_crop
 from ptz import PTZController, PTZConfig
 from pose import PoseEstimator
+from recorder import ClipRecorder
 import api
 
 # Also import from new modular structure (api uses this internally)
@@ -70,17 +71,43 @@ def main():
     if cfg.enable_mqtt:
         notifier.add_mqtt(cfg.mqtt_broker, cfg.mqtt_port, cfg.mqtt_topic)
 
-    # Event callback
-    def on_event(event):
-        frame = capture.read()
-        notifier.notify(event, frame)
-        # Add to API events
-        api.add_event(event.to_dict())
-
-    events.on_event(on_event)
-
     # Stream server (for frame storage, used by API)
     stream = StreamServer(cfg.stream_port)
+
+    # Clip recorder for event videos
+    recorder = ClipRecorder(
+        output_dir=str(Path(cfg.snapshot_dir).parent / "clips"),
+        pre_seconds=3.0,
+        post_seconds=3.0,
+        fps=15
+    )
+
+    # Event callback - uses recorder
+    def on_event(event):
+        frame = capture.read()
+
+        # Get snapshot path before notification
+        snapshot_path = notifier.get_snapshot_path(event, frame)
+
+        # Send notification (will save snapshot)
+        notifier.notify(event, frame)
+
+        # Build event dict with paths
+        event_dict = event.to_dict()
+
+        # Add snapshot path
+        if snapshot_path:
+            event_dict["snapshot_path"] = snapshot_path
+
+        # Trigger clip recording
+        clip_path = recorder.trigger(event.event_type.value, event.class_name)
+        if clip_path:
+            event_dict["video_path"] = clip_path
+
+        # Add to API events
+        api.add_event(event_dict)
+
+    events.on_event(on_event)
 
     # PTZ control - connect if host is configured (manual control always available)
     ptz = None
@@ -129,6 +156,7 @@ def main():
     api.set_state("ptz", ptz)
     api.set_state("pose", pose)
     api.set_state("stream_server", stream)
+    api.set_state("recorder", recorder)
 
     # Start components
     capture.start()
@@ -201,6 +229,9 @@ def main():
 
             # Store raw frame (for clean face zoom fallback)
             stream.update_raw(frame)
+
+            # Feed frame to clip recorder
+            recorder.add_frame(frame)
 
             # Face zoom uses RAW frame (no overlays)
             face_crop = extract_face_crop(frame, detections, keypoints)

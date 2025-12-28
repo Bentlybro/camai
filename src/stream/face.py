@@ -98,10 +98,14 @@ def extract_face_crop(
     Extract and zoom into faces of ALL detected people.
     Creates a grid if multiple faces. Uses smoothing to prevent flickering.
 
+    Simplified approach: Uses nose keypoint from pose estimation if available,
+    otherwise estimates head position from person bounding box. This is faster
+    and works better at distance than trying to detect facial features.
+
     Args:
         frame: Original RAW frame (no overlays)
         detections: List of detections
-        keypoints_list: Optional pose keypoints for better face localization
+        keypoints_list: Optional pose keypoints for head localization
         output_size: Size of the output image
         padding: Extra padding around face
 
@@ -124,47 +128,31 @@ def extract_face_crop(
         faces_data = []
         h, w = frame.shape[:2]
 
-        for person in people:
+        for i, person in enumerate(people):
             x1, y1, x2, y2 = person.bbox
             person_width = x2 - x1
             person_height = y2 - y1
 
-            face_cx, face_cy, face_size = None, None, None
+            face_cx, face_cy = None, None
 
-            # Try to find face from pose keypoints
-            if keypoints_list:
-                for kpts in keypoints_list:
-                    if len(kpts) >= 5:
-                        nose = kpts[0]
-                        left_eye = kpts[1]
-                        right_eye = kpts[2]
-                        left_ear = kpts[3]
-                        right_ear = kpts[4]
+            # Try to use nose keypoint from pose estimation (index 0)
+            # This is fast and reliable at distance
+            if keypoints_list and i < len(keypoints_list):
+                kpts = keypoints_list[i]
+                if len(kpts) >= 1:
+                    nose = kpts[0]  # nose is keypoint 0
+                    # Check if nose is detected with confidence and within bbox
+                    if nose[2] > 0.2 and x1 <= nose[0] <= x2 and y1 <= nose[1] <= y2:
+                        face_cx = nose[0]
+                        face_cy = nose[1]
 
-                        # Check if nose is within this person's bbox
-                        if x1 <= nose[0] <= x2 and y1 <= nose[1] <= y2 and nose[2] > 0.3:
-                            valid_points = []
-                            for pt in [nose, left_eye, right_eye, left_ear, right_ear]:
-                                if pt[2] > 0.3:
-                                    valid_points.append((pt[0], pt[1]))
-
-                            if valid_points:
-                                face_cx = sum(p[0] for p in valid_points) / len(valid_points)
-                                face_cy = sum(p[1] for p in valid_points) / len(valid_points)
-
-                                if left_ear[2] > 0.3 and right_ear[2] > 0.3:
-                                    face_size = abs(right_ear[0] - left_ear[0]) * 1.5
-                                elif left_eye[2] > 0.3 and right_eye[2] > 0.3:
-                                    face_size = abs(right_eye[0] - left_eye[0]) * 3.0
-                                break
-
-            # Fallback to bbox estimation
+            # Fallback to bbox-based estimation (top center of person)
             if face_cx is None:
                 face_cx = (x1 + x2) / 2
                 face_cy = y1 + person_height * 0.12
 
-            if face_size is None:
-                face_size = max(person_width * 0.7, person_height * 0.22)
+            # Head size estimated from person bbox (works at any distance)
+            face_size = max(person_width * 0.7, person_height * 0.22)
 
             faces_data.append({
                 'cx': face_cx,

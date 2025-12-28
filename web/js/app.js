@@ -5,6 +5,8 @@ class CAMAIDashboard {
         this.ws = null;
         this.reconnectInterval = 5000;
         this.statsInterval = null;
+        this.events = [];  // Store events for modal access
+        this.currentFilter = 'all';
 
         this.init();
     }
@@ -14,6 +16,8 @@ class CAMAIDashboard {
         this.setupWebSocket();
         this.setupControls();
         this.setupPTZControls();
+        this.setupModal();
+        this.setupEventFilter();
         this.loadSettings();
         this.loadEvents();
         this.loadSnapshots();
@@ -49,6 +53,121 @@ class CAMAIDashboard {
             this.loadSnapshots();
         } else if (pageName === 'settings') {
             this.loadSettings();
+        }
+    }
+
+    // Modal
+    setupModal() {
+        const modal = document.getElementById('event-modal');
+        if (!modal) return;
+
+        // Close on backdrop click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                this.closeModal();
+            }
+        });
+
+        // Close on escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.closeModal();
+            }
+        });
+    }
+
+    openModal(event) {
+        const modal = document.getElementById('event-modal');
+        if (!modal) return;
+
+        // Set modal title
+        const title = document.getElementById('modal-title');
+        if (title) title.textContent = event.type || 'Event Details';
+
+        // Set modal details
+        document.getElementById('modal-type').textContent = event.type || '-';
+        document.getElementById('modal-class').textContent = event.class || '-';
+        document.getElementById('modal-confidence').textContent =
+            event.confidence ? `${(event.confidence * 100).toFixed(1)}%` : '-';
+        document.getElementById('modal-time').textContent =
+            event.timestamp ? new Date(event.timestamp * 1000).toLocaleString() : '-';
+
+        // Handle media
+        const snapshot = document.getElementById('modal-snapshot');
+        const video = document.getElementById('modal-video');
+        const noMedia = document.getElementById('modal-no-media');
+
+        // Hide all media first
+        if (snapshot) snapshot.style.display = 'none';
+        if (video) video.style.display = 'none';
+        if (noMedia) noMedia.style.display = 'none';
+
+        // Check for video clip
+        if (event.video_path) {
+            if (video) {
+                video.src = event.video_path;
+                video.style.display = 'block';
+            }
+        } else if (event.snapshot_path) {
+            if (snapshot) {
+                snapshot.src = event.snapshot_path;
+                snapshot.style.display = 'block';
+            }
+        } else {
+            if (noMedia) noMedia.style.display = 'block';
+        }
+
+        modal.classList.add('active');
+    }
+
+    closeModal() {
+        const modal = document.getElementById('event-modal');
+        if (modal) {
+            modal.classList.remove('active');
+            // Stop video if playing
+            const video = document.getElementById('modal-video');
+            if (video) {
+                video.pause();
+                video.src = '';
+            }
+        }
+    }
+
+    // Event Filter
+    setupEventFilter() {
+        const filter = document.getElementById('event-filter');
+        if (filter) {
+            filter.addEventListener('change', (e) => {
+                this.currentFilter = e.target.value;
+                this.renderFilteredEvents();
+            });
+        }
+    }
+
+    renderFilteredEvents() {
+        const eventsGrid = document.getElementById('events-grid');
+        if (!eventsGrid) return;
+
+        let filtered = this.events;
+        if (this.currentFilter !== 'all') {
+            filtered = this.events.filter(e => {
+                const type = (e.type || '').toLowerCase();
+                const cls = (e.class || '').toLowerCase();
+                if (this.currentFilter === 'person') {
+                    return type.includes('person') || cls === 'person';
+                } else if (this.currentFilter === 'vehicle') {
+                    return type.includes('vehicle') || cls === 'car' || cls === 'truck';
+                } else if (this.currentFilter === 'package') {
+                    return type.includes('package') || cls === 'package';
+                }
+                return true;
+            });
+        }
+
+        if (filtered.length === 0) {
+            eventsGrid.innerHTML = '<p style="color: var(--text-secondary); padding: 2rem;">No events matching filter</p>';
+        } else {
+            eventsGrid.innerHTML = filtered.map((e, i) => this.renderEventCard(e, i)).join('');
         }
     }
 
@@ -495,36 +614,33 @@ class CAMAIDashboard {
     async loadEvents() {
         try {
             const response = await fetch('/api/events?limit=50');
-            const events = await response.json();
+            this.events = await response.json();
 
             // Recent events on dashboard
             const recentList = document.getElementById('recent-events');
             if (recentList) {
-                if (events.length === 0) {
+                if (this.events.length === 0) {
                     recentList.innerHTML = '<div class="event-item placeholder">No events yet</div>';
                 } else {
-                    recentList.innerHTML = events.slice(0, 10).map(e => this.renderEventItem(e)).join('');
+                    recentList.innerHTML = this.events.slice(0, 10).map((e, i) => this.renderEventItem(e, i)).join('');
                 }
             }
 
-            // Events grid on events page
-            const eventsGrid = document.getElementById('events-grid');
-            if (eventsGrid) {
-                eventsGrid.innerHTML = events.map(e => this.renderEventCard(e)).join('');
-            }
+            // Events grid on events page - use filtered render
+            this.renderFilteredEvents();
         } catch (e) {
             console.error('Failed to load events:', e);
         }
     }
 
-    renderEventItem(event) {
+    renderEventItem(event, index) {
         const iconClass = event.type?.includes('person') ? 'person' :
                          event.type?.includes('vehicle') ? 'vehicle' : 'package';
         const icon = iconClass === 'person' ? '👤' : iconClass === 'vehicle' ? '🚗' : '📦';
         const time = new Date(event.timestamp * 1000).toLocaleTimeString();
 
         return `
-            <div class="event-item">
+            <div class="event-item clickable" data-event-index="${index}" onclick="dashboard.openEventByIndex(${index})">
                 <div class="event-icon ${iconClass}">${icon}</div>
                 <div class="event-details">
                     <div class="event-type">${event.type || 'Unknown'}</div>
@@ -534,31 +650,41 @@ class CAMAIDashboard {
         `;
     }
 
-    renderEventCard(event) {
+    renderEventCard(event, index) {
         const time = new Date(event.timestamp * 1000).toLocaleString();
+        const confidence = event.confidence ? `${(event.confidence * 100).toFixed(0)}%` : '';
         return `
-            <div class="event-card">
+            <div class="event-card clickable" data-event-index="${index}" onclick="dashboard.openEventByIndex(${index})">
                 <div class="event-type">${event.type || 'Unknown'}</div>
                 <div class="event-time">${time}</div>
                 <div class="event-class">${event.class || ''}</div>
+                ${confidence ? `<div class="event-confidence">${confidence} confidence</div>` : ''}
             </div>
         `;
     }
 
+    openEventByIndex(index) {
+        if (index >= 0 && index < this.events.length) {
+            this.openModal(this.events[index]);
+        }
+    }
+
     addEvent(event) {
+        // Add to events array
+        this.events.unshift(event);
+        this.events = this.events.slice(0, 100);  // Keep max 100
+
         const recentList = document.getElementById('recent-events');
         if (recentList) {
             const placeholder = recentList.querySelector('.placeholder');
             if (placeholder) placeholder.remove();
 
-            const html = this.renderEventItem(event);
-            recentList.insertAdjacentHTML('afterbegin', html);
-
-            // Keep only 10 items
-            while (recentList.children.length > 10) {
-                recentList.lastChild.remove();
-            }
+            // Re-render to update indexes
+            recentList.innerHTML = this.events.slice(0, 10).map((e, i) => this.renderEventItem(e, i)).join('');
         }
+
+        // Also update events grid if on events page
+        this.renderFilteredEvents();
     }
 
     // Snapshots
