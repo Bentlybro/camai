@@ -163,6 +163,7 @@ def main():
     api.set_state("pose", pose)
     api.set_state("classifier", classifier)
     api.set_state("stream_server", stream)
+    api.set_state("notifier", notifier)
 
     # Start components
     capture.start()

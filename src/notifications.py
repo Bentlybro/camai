@@ -23,6 +23,8 @@ class NotificationManager:
         self._running = False
         self._thread = None
         self._file_logger = None
+        self._discord_handler = None
+        self._mqtt_handler = None
 
     def add_file_logger(self, log_dir: str = "logs", snapshot_dir: str = "snapshots"):
         """Add file logging handler."""
@@ -37,11 +39,41 @@ class NotificationManager:
 
     def add_discord(self, webhook_url: str):
         """Add Discord webhook handler."""
-        self._handlers.append(DiscordHandler(webhook_url))
+        # Remove existing Discord handler if any
+        self.remove_discord()
+        handler = DiscordHandler(webhook_url)
+        self._handlers.append(handler)
+        self._discord_handler = handler
+
+    def remove_discord(self):
+        """Remove Discord handler."""
+        if hasattr(self, '_discord_handler') and self._discord_handler:
+            if self._discord_handler in self._handlers:
+                self._handlers.remove(self._discord_handler)
+            self._discord_handler = None
+
+    def has_discord(self) -> bool:
+        """Check if Discord handler is active."""
+        return hasattr(self, '_discord_handler') and self._discord_handler is not None
 
     def add_mqtt(self, broker: str, port: int = 1883, topic: str = "camai/events"):
         """Add MQTT handler."""
-        self._handlers.append(MQTTHandler(broker, port, topic))
+        # Remove existing MQTT handler if any
+        self.remove_mqtt()
+        handler = MQTTHandler(broker, port, topic)
+        self._handlers.append(handler)
+        self._mqtt_handler = handler
+
+    def remove_mqtt(self):
+        """Remove MQTT handler."""
+        if self._mqtt_handler:
+            if self._mqtt_handler in self._handlers:
+                self._handlers.remove(self._mqtt_handler)
+            self._mqtt_handler = None
+
+    def has_mqtt(self) -> bool:
+        """Check if MQTT handler is active."""
+        return self._mqtt_handler is not None
 
     def start(self):
         """Start notification worker."""

@@ -158,7 +158,7 @@ async def update_ptz_connection(settings: PTZConnectionSettings):
 
 @router.post("/pose")
 async def update_pose(settings: PoseSettings):
-    """Update pose settings - takes effect immediately at runtime."""
+    """Update pose settings - loads model dynamically if needed."""
     cfg = _state["config"]
     pose = _state.get("pose")
 
@@ -173,16 +173,29 @@ async def update_pose(settings: PoseSettings):
     # Check if model is loaded
     model_loaded = pose is not None and (pose.is_loaded if hasattr(pose, 'is_loaded') else True)
 
-    logger.info(f"Updated pose: enabled={settings.enabled}, model_loaded={model_loaded}")
-
+    # If enabling and model not loaded, try to load it
     if settings.enabled and not model_loaded:
-        return {"status": "ok", "note": "Pose enabled but model not loaded - restart required to load model"}
-    return {"status": "ok", "enabled": settings.enabled}
+        try:
+            from pose import PoseEstimator
+            new_pose = PoseEstimator(cfg.pose_model_path, cfg.confidence)
+            if new_pose.load():
+                _state["pose"] = new_pose
+                logger.info("Pose estimator loaded dynamically")
+                return {"status": "ok", "enabled": True, "loaded": True}
+            else:
+                logger.warning("Failed to load pose model")
+                return {"status": "ok", "enabled": True, "loaded": False, "note": "Model failed to load"}
+        except Exception as e:
+            logger.error(f"Failed to load pose estimator: {e}")
+            return {"status": "ok", "enabled": True, "loaded": False, "note": str(e)}
+
+    logger.info(f"Updated pose: enabled={settings.enabled}, model_loaded={model_loaded}")
+    return {"status": "ok", "enabled": settings.enabled, "loaded": model_loaded}
 
 
 @router.post("/classifier")
 async def update_classifier(settings: ClassifierSettings):
-    """Update classifier settings - takes effect immediately at runtime."""
+    """Update classifier settings - loads model dynamically if needed."""
     cfg = _state["config"]
     classifier = _state.get("classifier")
 
@@ -194,14 +207,26 @@ async def update_classifier(settings: ClassifierSettings):
     user_settings["classifier"] = {"enabled": settings.enabled}
     save_user_settings(user_settings)
 
-    # Check if model is loaded
+    # If enabling and model not loaded, try to load it
     model_loaded = classifier is not None and classifier.is_loaded if classifier else False
 
-    logger.info(f"Updated classifier: enabled={settings.enabled}, model_loaded={model_loaded}")
-
     if settings.enabled and not model_loaded:
-        return {"status": "ok", "note": "Classifier enabled but model not loaded - restart required to load model"}
-    return {"status": "ok", "enabled": settings.enabled}
+        try:
+            from classifier import ImageClassifier
+            new_classifier = ImageClassifier(cfg.classifier_model_path, cfg.confidence)
+            if new_classifier.load():
+                _state["classifier"] = new_classifier
+                logger.info("Classifier loaded dynamically")
+                return {"status": "ok", "enabled": True, "loaded": True}
+            else:
+                logger.warning("Failed to load classifier model")
+                return {"status": "ok", "enabled": True, "loaded": False, "note": "Model failed to load"}
+        except Exception as e:
+            logger.error(f"Failed to load classifier: {e}")
+            return {"status": "ok", "enabled": True, "loaded": False, "note": str(e)}
+
+    logger.info(f"Updated classifier: enabled={settings.enabled}, model_loaded={model_loaded}")
+    return {"status": "ok", "enabled": settings.enabled, "loaded": model_loaded}
 
 
 @router.post("/display")
@@ -285,6 +310,7 @@ async def get_notifications():
 async def update_notifications(settings: NotificationSettings):
     """Update notification settings."""
     cfg = _state["config"]
+    notifier = _state.get("notifier")
 
     if cfg:
         # Update Discord settings
@@ -318,6 +344,18 @@ async def update_notifications(settings: NotificationSettings):
     }
     save_user_settings(user_settings)
 
+    # Dynamically add/remove handlers
+    if notifier:
+        if settings.discord.enabled and settings.discord.webhook_url:
+            notifier.add_discord(settings.discord.webhook_url)
+        else:
+            notifier.remove_discord()
+
+        if settings.mqtt.enabled and settings.mqtt.broker:
+            notifier.add_mqtt(settings.mqtt.broker, settings.mqtt.port, settings.mqtt.topic)
+        else:
+            notifier.remove_mqtt()
+
     logger.info(f"Updated notifications: discord={settings.discord.enabled}, mqtt={settings.mqtt.enabled}")
     return {"status": "ok"}
 
@@ -326,6 +364,7 @@ async def update_notifications(settings: NotificationSettings):
 async def update_discord(settings: DiscordSettings):
     """Update Discord notification settings."""
     cfg = _state["config"]
+    notifier = _state.get("notifier")
 
     if cfg:
         cfg.enable_discord = settings.enabled
@@ -342,6 +381,15 @@ async def update_discord(settings: DiscordSettings):
     }
     save_user_settings(user_settings)
 
+    # Dynamically add/remove Discord handler
+    if notifier:
+        if settings.enabled and settings.webhook_url:
+            notifier.add_discord(settings.webhook_url)
+            logger.info(f"Discord handler added: {settings.webhook_url[:50]}...")
+        else:
+            notifier.remove_discord()
+            logger.info("Discord handler removed")
+
     logger.info(f"Updated Discord: enabled={settings.enabled}")
     return {"status": "ok"}
 
@@ -350,6 +398,7 @@ async def update_discord(settings: DiscordSettings):
 async def update_mqtt(settings: MQTTSettings):
     """Update MQTT notification settings."""
     cfg = _state["config"]
+    notifier = _state.get("notifier")
 
     if cfg:
         cfg.enable_mqtt = settings.enabled
@@ -368,6 +417,15 @@ async def update_mqtt(settings: MQTTSettings):
         "topic": settings.topic,
     }
     save_user_settings(user_settings)
+
+    # Dynamically add/remove MQTT handler
+    if notifier:
+        if settings.enabled and settings.broker:
+            notifier.add_mqtt(settings.broker, settings.port, settings.topic)
+            logger.info(f"MQTT handler added: {settings.broker}:{settings.port}")
+        else:
+            notifier.remove_mqtt()
+            logger.info("MQTT handler removed")
 
     logger.info(f"Updated MQTT: enabled={settings.enabled}, broker={settings.broker}")
     return {"status": "ok"}
