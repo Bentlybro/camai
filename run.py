@@ -24,7 +24,7 @@ from capture import RTSPCapture
 from detector import YOLODetector, Detection
 from events import EventDetector
 from notifications import NotificationManager
-from stream import StreamServer, annotate_frame, extract_face_crop
+from stream import StreamServer, annotate_frame
 from ptz import PTZController, PTZConfig
 from pose import PoseEstimator
 import api
@@ -151,7 +151,6 @@ def main():
 
     log.info(f"Dashboard: http://0.0.0.0:{cfg.stream_port}")
     log.info(f"Stream: http://0.0.0.0:{cfg.stream_port}/stream")
-    log.info(f"Face stream: http://0.0.0.0:{cfg.stream_port}/face")
 
     # Signal handling
     running = True
@@ -216,15 +215,6 @@ def main():
                 stream.update(annotated)
             else:
                 stream.update(frame)
-
-            # Face zoom - only process every 2nd frame and only if people detected
-            if frame_count % 2 == 0:
-                people = [d for d in detections if d.class_name == "person"]
-                if people:
-                    face_crop = extract_face_crop(frame, detections, keypoints)
-                    stream.update_face(face_crop)
-                else:
-                    stream.update_face(None)
 
             # Update API stats periodically
             if time.time() - last_stats_update >= 0.5:
