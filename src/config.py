@@ -27,6 +27,10 @@ class Config:
     confidence: float = float(os.getenv("CONFIDENCE", "0.5"))
     iou_threshold: float = float(os.getenv("IOU_THRESHOLD", "0.45"))
 
+    # Pose estimation
+    enable_pose: bool = os.getenv("ENABLE_POSE", "false").lower() == "true"
+    pose_model_path: str = os.getenv("POSE_MODEL_PATH", "yolo11n-pose.engine")
+
     # Classes: 0=person, 2=car, 7=truck, 24=backpack, 26=handbag, 28=suitcase
     target_classes: List[int] = field(default_factory=lambda: [0, 2, 7, 24, 26, 28])
     class_names: dict = field(default_factory=lambda: {

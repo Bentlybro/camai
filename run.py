@@ -22,8 +22,9 @@ from capture import RTSPCapture
 from detector import YOLODetector, Detection
 from events import EventDetector
 from notifications import NotificationManager
-from stream import StreamServer, annotate_frame
+from stream import StreamServer, annotate_frame, extract_face_crop
 from ptz import PTZController, PTZConfig
+from pose import PoseEstimator
 
 logging.basicConfig(
     level=logging.INFO,
@@ -95,6 +96,16 @@ def main():
     detector.load()
     log.info(f"Model loaded. Inference: ~{detector.inference_ms:.1f}ms")
 
+    # Pose estimation (optional)
+    pose = None
+    if cfg.enable_pose:
+        pose = PoseEstimator(cfg.pose_model_path, cfg.confidence)
+        if pose.load():
+            log.info("Pose estimation enabled")
+        else:
+            log.warning("Pose estimation disabled - model failed to load")
+            pose = None
+
     # Start components
     capture.start()
     notifier.start()
@@ -138,12 +149,22 @@ def main():
             if ptz:
                 ptz.track_person(detections, frame.shape[1], frame.shape[0])
 
+            # Pose estimation (optional)
+            keypoints = None
+            if pose:
+                keypoints = pose.estimate(frame)
+
             # Update stream
             if stream:
                 elapsed = time.time() - start_time
                 fps = frame_count / elapsed if elapsed > 0 else 0
-                annotated = annotate_frame(frame, detections, fps, detector.inference_ms)
+                total_inf = detector.inference_ms + (pose.inference_ms if pose else 0)
+                annotated = annotate_frame(frame, detections, fps, total_inf, keypoints)
                 stream.update(annotated)
+
+                # Update face zoom stream
+                face_crop = extract_face_crop(frame, detections, keypoints)
+                stream.update_face(face_crop)
 
             # Log stats every 30s
             if time.time() - last_log >= 30:
