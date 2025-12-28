@@ -1,0 +1,33 @@
+# CAMAI .gitignore
+
+# Model files (large, generated on device)
+*.engine
+*.onnx
+*.pt
+*.pth
+
+# Logs and snapshots
+logs/
+snapshots/
+
+# Environment (contains credentials)
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
