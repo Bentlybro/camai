@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from ...database import get_database
+from database import get_database
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["events"])

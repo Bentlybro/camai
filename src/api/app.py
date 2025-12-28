@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from .routes import settings, ptz, events, streams, stats, system
-from ..database import get_database
+from database import get_database
 
 logger = logging.getLogger(__name__)
 

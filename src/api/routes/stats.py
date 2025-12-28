@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from fastapi import APIRouter, HTTPException
 
-from ...database import get_database
+from database import get_database
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/stats", tags=["stats"])
