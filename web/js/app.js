@@ -13,10 +13,12 @@ class CAMAIDashboard {
         this.setupNavigation();
         this.setupWebSocket();
         this.setupControls();
+        this.setupPTZControls();
         this.loadSettings();
         this.loadEvents();
         this.loadSnapshots();
         this.startStatsPolling();
+        this.checkPTZStatus();
     }
 
     // Navigation
@@ -140,6 +142,80 @@ class CAMAIDashboard {
         if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
         if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
         return num;
+    }
+
+    // PTZ Controls
+    setupPTZControls() {
+        // Direction buttons - hold to move, release to stop
+        const ptzButtons = document.querySelectorAll('.ptz-btn[data-pan]');
+        ptzButtons.forEach(btn => {
+            btn.addEventListener('mousedown', (e) => {
+                const pan = parseFloat(btn.dataset.pan);
+                const tilt = parseFloat(btn.dataset.tilt);
+                this.ptzMove(pan, tilt);
+            });
+            btn.addEventListener('mouseup', () => this.ptzStop());
+            btn.addEventListener('mouseleave', () => this.ptzStop());
+
+            // Touch support
+            btn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const pan = parseFloat(btn.dataset.pan);
+                const tilt = parseFloat(btn.dataset.tilt);
+                this.ptzMove(pan, tilt);
+            });
+            btn.addEventListener('touchend', () => this.ptzStop());
+        });
+
+        // Stop button
+        document.getElementById('ptz-stop')?.addEventListener('click', () => {
+            this.ptzStop();
+        });
+    }
+
+    async ptzMove(pan, tilt) {
+        try {
+            await fetch('/api/ptz/move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pan, tilt })
+            });
+            // Update toggle to show auto-tracking is now off
+            const toggle = document.getElementById('toggle-ptz');
+            if (toggle) toggle.checked = false;
+        } catch (e) {
+            console.error('PTZ move failed:', e);
+        }
+    }
+
+    async ptzStop() {
+        try {
+            await fetch('/api/ptz/stop', { method: 'POST' });
+        } catch (e) {
+            console.error('PTZ stop failed:', e);
+        }
+    }
+
+    async checkPTZStatus() {
+        try {
+            const response = await fetch('/api/ptz/status');
+            const status = await response.json();
+
+            const badge = document.getElementById('ptz-status');
+            if (badge) {
+                if (status.connected) {
+                    badge.textContent = 'Connected';
+                    badge.classList.add('ptz-status-connected');
+                    badge.classList.remove('badge-secondary');
+                } else {
+                    badge.textContent = 'Disconnected';
+                    badge.classList.remove('ptz-status-connected');
+                    badge.classList.add('badge-secondary');
+                }
+            }
+        } catch (e) {
+            console.error('Failed to check PTZ status:', e);
+        }
     }
 
     // Controls

@@ -207,6 +207,53 @@ async def update_pose_settings(settings: PoseSettings):
     return {"status": "ok", "note": "Restart required for pose model changes"}
 
 
+# ============== PTZ Control ==============
+
+class PTZMoveRequest(BaseModel):
+    pan: float = 0  # -1.0 (left) to 1.0 (right)
+    tilt: float = 0  # -1.0 (down) to 1.0 (up)
+
+
+@app.post("/api/ptz/move")
+async def ptz_move(request: PTZMoveRequest):
+    """Move PTZ camera manually."""
+    ptz = _state["ptz"]
+    if not ptz or not ptz._connected:
+        raise HTTPException(status_code=503, detail="PTZ not connected")
+
+    # Temporarily disable auto-tracking while manually controlling
+    cfg = _state["config"]
+    if cfg:
+        cfg.enable_ptz = False
+
+    ptz.move(request.pan, request.tilt)
+    return {"status": "ok", "pan": request.pan, "tilt": request.tilt}
+
+
+@app.post("/api/ptz/stop")
+async def ptz_stop():
+    """Stop PTZ movement."""
+    ptz = _state["ptz"]
+    if not ptz or not ptz._connected:
+        raise HTTPException(status_code=503, detail="PTZ not connected")
+
+    ptz._is_moving = True  # Force stop to send command
+    ptz.stop()
+    return {"status": "ok"}
+
+
+@app.get("/api/ptz/status")
+async def ptz_status():
+    """Get PTZ connection status."""
+    ptz = _state["ptz"]
+    cfg = _state["config"]
+
+    return {
+        "connected": ptz is not None and ptz._connected if ptz else False,
+        "auto_tracking": cfg.enable_ptz if cfg else False,
+    }
+
+
 @app.get("/api/events")
 async def get_events(limit: int = 50):
     """Get recent events."""

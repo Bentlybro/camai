@@ -517,6 +517,68 @@ input[type="range"]::-webkit-slider-thumb {
     }
 }
 
+/* PTZ Controls */
+.ptz-controls {
+    padding: 1.25rem;
+}
+
+.ptz-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+    max-width: 180px;
+    margin: 0 auto 1rem;
+}
+
+.ptz-btn {
+    width: 50px;
+    height: 50px;
+    border: none;
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 1.25rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ptz-btn:hover {
+    background: var(--accent);
+    color: var(--bg-primary);
+}
+
+.ptz-btn:active {
+    transform: scale(0.95);
+    background: var(--accent-hover);
+}
+
+.ptz-btn.ptz-stop {
+    background: var(--danger);
+}
+
+.ptz-btn.ptz-stop:hover {
+    background: #ff6b7a;
+}
+
+.ptz-spacer {
+    width: 50px;
+    height: 50px;
+}
+
+.ptz-auto {
+    border-top: 1px solid var(--border);
+    padding-top: 1rem;
+    margin-top: 0.5rem;
+}
+
+.ptz-status-connected {
+    background: var(--success) !important;
+    color: var(--bg-primary) !important;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
     width: 8px;
