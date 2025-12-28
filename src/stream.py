@@ -108,10 +108,17 @@ def annotate_frame(
         label = f"{d.class_name.upper()} {d.confidence:.0%}"
         cv2.putText(out, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-    # Stats overlay
-    cv2.putText(out, f"FPS: {fps:.1f} | Inf: {inference_ms:.1f}ms", (10, 25),
+    # Stats overlay (top right)
+    h, w = out.shape[:2]
+
+    stats_text = f"FPS: {fps:.1f} | Inf: {inference_ms:.1f}ms"
+    (tw, th), _ = cv2.getTextSize(stats_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+    cv2.putText(out, stats_text, (w - tw - 10, 25),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
-    cv2.putText(out, datetime.now().strftime("%H:%M:%S"), (10, 50),
+
+    time_text = datetime.now().strftime("%H:%M:%S")
+    (tw2, _), _ = cv2.getTextSize(time_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+    cv2.putText(out, time_text, (w - tw2 - 10, 50),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
 
     return out
