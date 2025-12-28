@@ -23,6 +23,7 @@ from detector import YOLODetector, Detection
 from events import EventDetector
 from notifications import NotificationManager
 from stream import StreamServer, annotate_frame
+from ptz import PTZController, PTZConfig
 
 logging.basicConfig(
     level=logging.INFO,
@@ -68,6 +69,27 @@ def main():
     if cfg.enable_stream:
         stream = StreamServer(cfg.stream_port)
 
+    # PTZ tracking
+    ptz = None
+    if cfg.enable_ptz:
+        ptz_config = PTZConfig(
+            enabled=True,
+            host=cfg.ptz_host,
+            port=cfg.ptz_port,
+            username=cfg.ptz_username,
+            password=cfg.ptz_password,
+            track_speed=cfg.ptz_track_speed,
+            deadzone=cfg.ptz_deadzone,
+            return_home=cfg.ptz_return_home,
+            home_delay=cfg.ptz_home_delay,
+        )
+        ptz = PTZController(ptz_config)
+        if ptz.connect():
+            log.info("PTZ tracking enabled - will follow people")
+        else:
+            log.warning("PTZ connection failed - tracking disabled")
+            ptz = None
+
     # Load model
     log.info(f"Loading model: {cfg.model_path}")
     detector.load()
@@ -112,6 +134,10 @@ def main():
             # Update events
             _ = events.update(detections, frame.shape[1], frame.shape[0])
 
+            # PTZ tracking (follows people only)
+            if ptz:
+                ptz.track_person(detections, frame.shape[1], frame.shape[0])
+
             # Update stream
             if stream:
                 elapsed = time.time() - start_time
@@ -132,6 +158,8 @@ def main():
         notifier.stop()
         if stream:
             stream.stop()
+        if ptz:
+            ptz.disconnect()
 
         elapsed = time.time() - start_time
         log.info(f"Processed {frame_count} frames in {elapsed:.0f}s ({frame_count/elapsed:.1f} FPS)")

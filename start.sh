@@ -21,10 +21,10 @@ if [ ! -f "yolo11n.engine" ]; then
     echo "Export complete!"
 fi
 
-# Install python-dotenv if needed and run
+# Install dependencies and run
 echo "Starting CAMAI..."
 sudo docker run -it --rm --ipc=host --runtime=nvidia \
     --net=host --privileged \
     -v "$(pwd)":/app -w /app \
     $IMAGE \
-    bash -c "pip install -q python-dotenv && python3 run.py"
+    bash -c "pip install -q python-dotenv onvif-zeep && python3 run.py"

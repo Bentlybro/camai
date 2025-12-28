@@ -56,6 +56,17 @@ class Config:
     enable_stream: bool = os.getenv("ENABLE_STREAM", "true").lower() == "true"
     stream_port: int = int(os.getenv("STREAM_PORT", "8080"))
 
+    # PTZ tracking
+    enable_ptz: bool = os.getenv("ENABLE_PTZ", "false").lower() == "true"
+    ptz_host: str = os.getenv("PTZ_HOST", "")  # Camera IP for ONVIF
+    ptz_port: int = int(os.getenv("PTZ_PORT", "2020"))
+    ptz_username: str = os.getenv("PTZ_USERNAME", "")
+    ptz_password: str = os.getenv("PTZ_PASSWORD", "")
+    ptz_track_speed: float = float(os.getenv("PTZ_TRACK_SPEED", "0.5"))
+    ptz_deadzone: float = float(os.getenv("PTZ_DEADZONE", "0.15"))
+    ptz_return_home: bool = os.getenv("PTZ_RETURN_HOME", "true").lower() == "true"
+    ptz_home_delay: float = float(os.getenv("PTZ_HOME_DELAY", "10.0"))
+
     # Debug
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
 
