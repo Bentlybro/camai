@@ -65,6 +65,13 @@ class TrackedObject:
     color: str = ""
     description: str = ""
     signature: str = ""  # e.g., "black_truck" for better matching
+    # Movement tracking for loitering detection
+    position_history: list = None  # List of (timestamp, center_x, center_y)
+    loitering_start: float = 0  # When they started staying in one area
+
+    def __post_init__(self):
+        if self.position_history is None:
+            self.position_history = []
 
 
 class EventDetector:
@@ -77,10 +84,15 @@ class EventDetector:
         vehicle_stop_time: float = 5.0,
         iou_threshold: float = 0.3,
     ):
-        self.person_dwell = person_dwell_time
+        self.person_dwell = person_dwell_time  # Legacy - now used as loitering time
         self.person_cooldown = person_cooldown
         self.vehicle_stop = vehicle_stop_time
         self.iou_threshold = iou_threshold
+
+        # Loitering detection - person must stay within area for X seconds
+        self._loitering_time = 10.0  # Seconds of staying in same area to trigger
+        self._loitering_radius = 100  # Pixels - max movement to still be "loitering"
+        self._position_history_max = 30  # Keep last 30 position samples
 
         self._objects: Dict[int, TrackedObject] = {}
         self._next_id = 0
@@ -128,6 +140,67 @@ class EventDetector:
     def on_event(self, callback: Callable[[Event], None]):
         """Register event callback."""
         self._callbacks.append(callback)
+
+    def _get_bbox_center(self, bbox: tuple) -> tuple:
+        """Get center point of bounding box."""
+        return ((bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2)
+
+    def _update_position_history(self, obj: TrackedObject, bbox: tuple):
+        """Update position history for loitering detection."""
+        now = time.time()
+        cx, cy = self._get_bbox_center(bbox)
+        obj.position_history.append((now, cx, cy))
+        # Keep only recent history
+        if len(obj.position_history) > self._position_history_max:
+            obj.position_history = obj.position_history[-self._position_history_max:]
+
+    def _is_loitering(self, obj: TrackedObject) -> tuple:
+        """
+        Check if person is loitering (staying in same area).
+        Returns (is_loitering, duration) tuple.
+        """
+        if len(obj.position_history) < 3:
+            return False, 0
+
+        now = time.time()
+
+        # Get positions from the last N seconds
+        recent_positions = [
+            (t, x, y) for t, x, y in obj.position_history
+            if now - t <= self._loitering_time + 2  # Slight buffer
+        ]
+
+        if len(recent_positions) < 2:
+            return False, 0
+
+        # Calculate movement range
+        xs = [p[1] for p in recent_positions]
+        ys = [p[2] for p in recent_positions]
+
+        x_range = max(xs) - min(xs)
+        y_range = max(ys) - min(ys)
+        total_movement = (x_range ** 2 + y_range ** 2) ** 0.5
+
+        # If movement is within radius, they're loitering
+        if total_movement <= self._loitering_radius:
+            # Calculate how long they've been in this area
+            oldest_in_area = recent_positions[0][0]
+
+            # Find when they entered this area
+            for i, (t, x, y) in enumerate(obj.position_history):
+                # Check distance from current position
+                curr_cx, curr_cy = self._get_bbox_center(obj.bbox)
+                dist = ((x - curr_cx) ** 2 + (y - curr_cy) ** 2) ** 0.5
+                if dist <= self._loitering_radius:
+                    oldest_in_area = t
+                    break
+
+            loiter_duration = now - oldest_in_area
+
+            if loiter_duration >= self._loitering_time:
+                return True, loiter_duration
+
+        return False, 0
 
     def _can_fire(self, event_type: str) -> bool:
         """Check if we can fire this event type (cooldown + rate limit check)."""
@@ -380,19 +453,25 @@ class EventDetector:
                     obj.color = det.color
                     obj.description = det.description
 
-                dwell = now - obj.first_seen
+                # Track position history for people (loitering detection)
+                if obj.class_name == "person":
+                    self._update_position_history(obj, det.bbox)
 
-                # Person dwelling
-                if obj.class_name == "person" and dwell >= self.person_dwell and not obj.reported:
-                    if self._can_fire("person_dwelling"):
-                        obj.reported = True
-                        event = Event(EventType.PERSON_DWELLING, now, "person", det.confidence, det.bbox,
-                                      {"dwell": dwell}, color=obj.color, description=obj.description)
-                        events.append(event)
-                        self._fire(event)
+                # Person loitering - actually staying in one area, not just walking through
+                if obj.class_name == "person" and not obj.reported:
+                    is_loitering, loiter_duration = self._is_loitering(obj)
+                    if is_loitering:
+                        if self._can_fire("person_dwelling"):
+                            obj.reported = True
+                            event = Event(EventType.PERSON_DWELLING, now, "person", det.confidence, det.bbox,
+                                          {"dwell": loiter_duration}, color=obj.color,
+                                          description=f"{obj.description} loitering" if obj.description else "person loitering")
+                            events.append(event)
+                            self._fire(event)
 
                 # Vehicle stopped - register for parking tracking
-                elif obj.class_name in ("car", "truck") and dwell >= self.vehicle_stop and not obj.reported:
+                dwell = now - obj.first_seen
+                if obj.class_name in ("car", "truck") and dwell >= self.vehicle_stop and not obj.reported:
                     obj.reported = True
                     # Register as stopped (will become parked after 3 min)
                     self._register_stopped_vehicle(det)
