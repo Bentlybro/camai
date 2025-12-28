@@ -182,12 +182,14 @@ def main():
             elapsed = time.time() - start_time
             fps = frame_count / elapsed if elapsed > 0 else 0
             total_inf = detector.inference_ms + (pose.inference_ms if pose else 0)
-            annotated = annotate_frame(frame, detections, fps, total_inf, keypoints)
-            stream.update(annotated)
 
-            # Update face zoom stream
+            # Face zoom uses RAW frame (no overlays)
             face_crop = extract_face_crop(frame, detections, keypoints)
             stream.update_face(face_crop)
+
+            # Main stream gets annotations
+            annotated = annotate_frame(frame, detections, fps, total_inf, keypoints)
+            stream.update(annotated)
 
             # Update API stats periodically
             if time.time() - last_stats_update >= 0.5:

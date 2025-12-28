@@ -108,6 +108,8 @@ class PoseSettings(BaseModel):
 
 class StreamSettings(BaseModel):
     quality: int = 70
+    width: int = 640
+    height: int = 480
 
 
 class AllSettings(BaseModel):
@@ -154,6 +156,8 @@ async def get_settings():
         },
         "stream": {
             "quality": 70,
+            "width": cfg.capture_width,
+            "height": cfg.capture_height,
         }
     }
 
@@ -205,6 +209,19 @@ async def update_pose_settings(settings: PoseSettings):
 
     logger.info(f"Updated pose: enabled={settings.enabled}")
     return {"status": "ok", "note": "Restart required for pose model changes"}
+
+
+@app.post("/api/settings/stream")
+async def update_stream_settings(settings: StreamSettings):
+    """Update stream/resolution settings."""
+    cfg = _state["config"]
+
+    if cfg:
+        cfg.capture_width = settings.width
+        cfg.capture_height = settings.height
+
+    logger.info(f"Updated stream: {settings.width}x{settings.height}")
+    return {"status": "ok", "note": "Restart required for resolution changes"}
 
 
 # ============== PTZ Control ==============

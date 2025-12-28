@@ -232,6 +232,27 @@
                     </div>
                 </div>
 
+                <!-- Stream Settings -->
+                <div class="card settings-section">
+                    <div class="card-header">
+                        <h3>Stream / Resolution</h3>
+                    </div>
+                    <div class="settings-form">
+                        <div class="form-group">
+                            <label for="setting-resolution">Resolution</label>
+                            <select id="setting-resolution">
+                                <option value="320x240">320x240 (Low)</option>
+                                <option value="640x480" selected>640x480 (Default)</option>
+                                <option value="800x600">800x600 (Medium)</option>
+                                <option value="1280x720">1280x720 (HD)</option>
+                                <option value="1920x1080">1920x1080 (Full HD)</option>
+                            </select>
+                            <p class="form-hint">Higher resolution = better face zoom quality but slower FPS. Requires restart.</p>
+                        </div>
+                        <button class="btn btn-primary" id="btn-apply-resolution">Apply & Restart Required</button>
+                    </div>
+                </div>
+
                 <!-- About -->
                 <div class="card settings-section">
                     <div class="card-header">

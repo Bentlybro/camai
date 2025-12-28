@@ -281,6 +281,32 @@ class CAMAIDashboard {
         document.getElementById('setting-pose-enabled')?.addEventListener('change', (e) => {
             this.updateSetting('pose', { enabled: e.target.checked });
         });
+
+        // Resolution settings
+        document.getElementById('btn-apply-resolution')?.addEventListener('click', () => {
+            this.applyResolution();
+        });
+    }
+
+    async applyResolution() {
+        const select = document.getElementById('setting-resolution');
+        if (!select) return;
+
+        const [width, height] = select.value.split('x').map(Number);
+
+        try {
+            const response = await fetch('/api/settings/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ width, height, quality: 70 })
+            });
+
+            const result = await response.json();
+            alert(`Resolution set to ${width}x${height}. Please restart CAMAI for changes to take effect.`);
+        } catch (e) {
+            console.error('Failed to update resolution:', e);
+            alert('Failed to update resolution');
+        }
     }
 
     setupRangeSlider(sliderId, valueId, onChange) {
@@ -354,6 +380,13 @@ class CAMAIDashboard {
 
             const poseEnabled = document.getElementById('setting-pose-enabled');
             if (poseEnabled) poseEnabled.checked = settings.pose?.enabled || false;
+
+            // Resolution
+            const resSelect = document.getElementById('setting-resolution');
+            if (resSelect && settings.stream) {
+                const currentRes = `${settings.stream.width}x${settings.stream.height}`;
+                resSelect.value = currentRes;
+            }
 
         } catch (e) {
             console.error('Failed to load settings:', e);
