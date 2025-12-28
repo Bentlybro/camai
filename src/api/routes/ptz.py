@@ -114,3 +114,64 @@ async def delete_preset(token: str):
 
     success = ptz.remove_preset(token)
     return {"status": "ok" if success else "failed"}
+
+
+@router.get("/imaging")
+async def get_imaging_status():
+    """Get imaging status (light, night mode)."""
+    ptz = _state["ptz"]
+    if not ptz or not ptz._connected:
+        return {
+            "ir_light": False,
+            "night_mode": False,
+            "imaging_available": False
+        }
+
+    return ptz.get_imaging_status()
+
+
+@router.post("/light")
+async def toggle_ir_light(enabled: bool = True):
+    """Toggle IR light on/off."""
+    ptz = _state["ptz"]
+    if not ptz or not ptz._connected:
+        raise HTTPException(status_code=503, detail="PTZ not connected")
+
+    success = ptz.set_ir_light(enabled)
+    return {
+        "status": "ok" if success else "unsupported",
+        "ir_light": enabled if success else ptz._ir_light_on
+    }
+
+
+@router.post("/night-mode")
+async def toggle_night_mode(enabled: bool = True):
+    """Toggle night mode (IR cut filter) on/off."""
+    ptz = _state["ptz"]
+    if not ptz or not ptz._connected:
+        raise HTTPException(status_code=503, detail="PTZ not connected")
+
+    success = ptz.set_night_mode(enabled)
+    return {
+        "status": "ok" if success else "unsupported",
+        "night_mode": enabled if success else ptz._night_mode_on
+    }
+
+
+@router.post("/reset")
+async def pan_tilt_reset():
+    """Perform pan/tilt correction (positional reset/calibration)."""
+    ptz = _state["ptz"]
+    if not ptz or not ptz._connected:
+        raise HTTPException(status_code=503, detail="PTZ not connected")
+
+    # Disable auto-tracking during reset
+    cfg = _state["config"]
+    if cfg:
+        cfg.enable_ptz = False
+
+    success = ptz.pan_tilt_reset()
+    return {
+        "status": "ok" if success else "unsupported",
+        "message": "Pan/tilt correction initiated" if success else "Reset command not supported by camera"
+    }

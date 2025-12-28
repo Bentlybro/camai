@@ -791,6 +791,77 @@ input[type="range"]::-webkit-slider-thumb {
     color: var(--bg-primary) !important;
 }
 
+/* Camera Controls (Light/Night Mode) */
+.ptz-camera-controls {
+    border-top: 1px solid var(--border);
+    padding-top: 1rem;
+    margin-top: 0.5rem;
+}
+
+.camera-controls-header {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+}
+
+.camera-controls-buttons {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.camera-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.75rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.camera-btn:hover {
+    border-color: var(--accent);
+    background: var(--bg-card);
+}
+
+.camera-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg-primary);
+}
+
+.camera-btn.active .camera-btn-label {
+    color: var(--bg-primary);
+}
+
+.camera-btn-icon {
+    font-size: 1.25rem;
+}
+
+.camera-btn-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    transition: color 0.2s;
+}
+
+.camera-btn-danger:hover {
+    border-color: var(--warning);
+    background: rgba(255, 165, 2, 0.1);
+}
+
+.camera-btn-danger:active {
+    background: var(--warning);
+    border-color: var(--warning);
+}
+
+.camera-btn-danger:active .camera-btn-label {
+    color: var(--bg-primary);
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
     width: 8px;
@@ -975,4 +1046,263 @@ input[type="range"]::-webkit-slider-thumb {
     color: white;
     text-shadow: 0 1px 2px rgba(0,0,0,0.5);
     margin-left: 4px;
+}
+
+/* Stats Page */
+.stats-dashboard {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.stats-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.summary-card {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    border: 1px solid var(--border);
+}
+
+.summary-icon {
+    font-size: 2.5rem;
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: var(--bg-secondary);
+}
+
+.summary-icon.person { background: rgba(52, 152, 219, 0.2); }
+.summary-icon.vehicle { background: rgba(231, 76, 60, 0.2); }
+.summary-icon.package { background: rgba(155, 89, 182, 0.2); }
+.summary-icon.total { background: rgba(46, 204, 113, 0.2); }
+
+.summary-data {
+    display: flex;
+    flex-direction: column;
+}
+
+.summary-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.summary-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.stats-chart-card {
+    min-height: 300px;
+}
+
+.chart-container {
+    height: 250px;
+    padding: 1rem;
+}
+
+.stats-hourly-card .hourly-bars {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    height: 150px;
+    padding: 1rem;
+    gap: 4px;
+}
+
+.hourly-bar {
+    flex: 1;
+    background: var(--accent);
+    border-radius: 4px 4px 0 0;
+    min-height: 4px;
+    position: relative;
+    transition: height 0.3s ease;
+}
+
+.hourly-bar:hover {
+    background: var(--accent-hover);
+}
+
+.hourly-bar::after {
+    content: attr(data-hour);
+    position: absolute;
+    bottom: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.6rem;
+    color: var(--text-secondary);
+}
+
+.hourly-bar::before {
+    content: attr(data-count);
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.65rem;
+    color: var(--text-primary);
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.hourly-bar:hover::before {
+    opacity: 1;
+}
+
+.hourly-bar-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    min-width: 20px;
+}
+
+.hourly-bar-item .hourly-bar {
+    width: 100%;
+    max-width: 30px;
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+}
+
+.hourly-bar-item .bar-count {
+    font-size: 0.6rem;
+    color: var(--bg-primary);
+    font-weight: 600;
+    position: absolute;
+    top: 2px;
+}
+
+.hourly-bar-item .hourly-label {
+    font-size: 0.6rem;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+.hourly-bar-item.current .hourly-bar {
+    background: var(--success);
+}
+
+.hourly-bar-item.current .hourly-label {
+    color: var(--success);
+    font-weight: 600;
+}
+
+/* Detection Breakdown */
+.detection-breakdown {
+    padding: 1rem;
+}
+
+.breakdown-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.breakdown-label {
+    width: 80px;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.breakdown-bar-container {
+    flex: 1;
+    height: 24px;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.breakdown-bar {
+    height: 100%;
+    border-radius: 12px;
+    transition: width 0.5s ease;
+}
+
+.breakdown-bar.person { background: linear-gradient(90deg, #3498db, #2980b9); }
+.breakdown-bar.vehicle { background: linear-gradient(90deg, #e74c3c, #c0392b); }
+.breakdown-bar.package { background: linear-gradient(90deg, #9b59b6, #8e44ad); }
+
+.breakdown-percent {
+    width: 50px;
+    text-align: right;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* System Stats */
+.system-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+    padding: 1rem;
+}
+
+.system-stat {
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.system-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.system-value {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+/* Notifications Settings */
+.notification-section {
+    padding: 0.5rem 0;
+}
+
+.section-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 1.5rem 0;
+}
+
+.btn-small {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-small:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+/* Stats Period Selector */
+.stats-period select {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
 }

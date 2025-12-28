@@ -50,3 +50,21 @@ class StreamSettings(BaseModel):
     quality: int = 70
     width: int = 640
     height: int = 480
+
+
+class DiscordSettings(BaseModel):
+    enabled: bool = False
+    webhook_url: str = ""
+
+
+class MQTTSettings(BaseModel):
+    enabled: bool = False
+    broker: str = "localhost"
+    port: int = 1883
+    topic: str = "camai/events"
+
+
+class NotificationSettings(BaseModel):
+    discord: DiscordSettings = DiscordSettings()
+    mqtt: MQTTSettings = MQTTSettings()
+    save_snapshots: bool = True

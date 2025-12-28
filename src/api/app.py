@@ -8,7 +8,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from .routes import settings, ptz, events, streams
+from .routes import settings, ptz, events, streams, stats
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,7 @@ def set_state(key: str, value):
     ptz.set_state(_state)
     events.set_state(_state)
     streams.set_state(_state)
+    stats.set_state(_state)
 
 
 def get_state(key: str):
@@ -74,12 +75,14 @@ settings.set_state(_state)
 ptz.set_state(_state)
 events.set_state(_state)
 streams.set_state(_state)
+stats.set_state(_state)
 
 # Include routers
 app.include_router(settings.router)
 app.include_router(ptz.router)
 app.include_router(events.router)
 app.include_router(streams.router)
+app.include_router(stats.router)
 
 
 @app.get("/")
@@ -87,12 +90,6 @@ async def root():
     """Serve dashboard."""
     web_dir = Path(__file__).parent.parent.parent / "web"
     return FileResponse(web_dir / "index.html")
-
-
-@app.get("/api/stats")
-async def get_stats():
-    """Get current system stats."""
-    return _state["stats"]
 
 
 @app.websocket("/ws")

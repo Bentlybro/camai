@@ -32,6 +32,8 @@ class PTZController:
         self._camera = None
         self._ptz_service = None
         self._media_service = None
+        self._imaging_service = None
+        self._video_source_token = None
         self._profile_token = None
         self._connected = False
         self._last_person_time = time.time()  # Initialize to now, not 0
@@ -44,6 +46,8 @@ class PTZController:
         self._last_direction = (0, 0)  # Track last pan/tilt direction
         self._consecutive_detections = 0  # Count consecutive frames with person
         self._detection_threshold = 3  # Frames required before tracking starts
+        self._ir_light_on = False
+        self._night_mode_on = False
 
     def connect(self) -> bool:
         """Connect to camera via ONVIF."""
@@ -95,12 +99,29 @@ class PTZController:
             self._media_service = self._camera.create_media_service()
             self._ptz_service = self._camera.create_ptz_service()
 
+            # Try to get imaging service for light/IR control
+            try:
+                self._imaging_service = self._camera.create_imaging_service()
+                logger.info("Imaging service available")
+            except Exception as e:
+                logger.debug(f"Imaging service not available: {e}")
+                self._imaging_service = None
+
             # Get profile token
             profiles = self._media_service.GetProfiles()
             if profiles:
                 self._profile_token = profiles[0].token
                 logger.info(f"PTZ connected, profile: {self._profile_token}")
                 self._connected = True
+
+                # Get video source token for imaging service
+                try:
+                    video_sources = self._media_service.GetVideoSources()
+                    if video_sources:
+                        self._video_source_token = video_sources[0].token
+                        logger.info(f"Video source token: {self._video_source_token}")
+                except Exception as e:
+                    logger.debug(f"Could not get video source: {e}")
 
                 # Try to get PTZ status/capabilities
                 try:
@@ -359,3 +380,209 @@ class PTZController:
         self.stop()
         self._connected = False
         logger.info("PTZ disconnected")
+
+    def set_ir_light(self, enabled: bool) -> bool:
+        """
+        Toggle IR illuminator/light on camera.
+        Uses ONVIF imaging service or auxiliary commands.
+        """
+        if not self._connected:
+            return False
+
+        self._ir_light_on = enabled
+        logger.info(f"IR light {'on' if enabled else 'off'}")
+
+        # Try imaging service first (IrCutFilter controls IR LEDs on many cameras)
+        if self._imaging_service and self._video_source_token:
+            try:
+                # Get current imaging settings
+                settings = self._imaging_service.GetImagingSettings({
+                    'VideoSourceToken': self._video_source_token
+                })
+
+                # Try to set IR cut filter mode
+                # OFF = IR LEDs on (night mode), ON = IR LEDs off (day mode)
+                # AUTO = camera decides
+                request = self._imaging_service.create_type('SetImagingSettings')
+                request.VideoSourceToken = self._video_source_token
+                request.ImagingSettings = settings
+                if hasattr(request.ImagingSettings, 'IrCutFilter'):
+                    request.ImagingSettings.IrCutFilter = 'OFF' if enabled else 'ON'
+                    self._imaging_service.SetImagingSettings(request)
+                    logger.info(f"Set IR cut filter to {'OFF' if enabled else 'ON'}")
+                    return True
+            except Exception as e:
+                logger.debug(f"Could not set IR via imaging service: {e}")
+
+        # Try auxiliary command (some cameras use this)
+        try:
+            # Common auxiliary commands for IR lights
+            aux_data = 'tt:IR' if enabled else 'tt:IRoff'
+            request = self._ptz_service.create_type('SendAuxiliaryCommand')
+            request.ProfileToken = self._profile_token
+            request.AuxiliaryData = aux_data
+            self._ptz_service.SendAuxiliaryCommand(request)
+            logger.info(f"Sent auxiliary command: {aux_data}")
+            return True
+        except Exception as e:
+            logger.debug(f"Auxiliary command failed: {e}")
+
+        # Try alternative auxiliary commands
+        for aux_cmd in ['IRLamp', 'InfraredLamp', 'LED']:
+            try:
+                request = self._ptz_service.create_type('SendAuxiliaryCommand')
+                request.ProfileToken = self._profile_token
+                request.AuxiliaryData = f"tt:{aux_cmd}{'On' if enabled else 'Off'}"
+                self._ptz_service.SendAuxiliaryCommand(request)
+                logger.info(f"IR light command sent via {aux_cmd}")
+                return True
+            except Exception:
+                continue
+
+        logger.warning("IR light control not supported by this camera")
+        return False
+
+    def set_night_mode(self, enabled: bool) -> bool:
+        """
+        Toggle night/day mode (IR cut filter).
+        Night mode = IR cut filter OFF (allows IR light through)
+        Day mode = IR cut filter ON (blocks IR, true colors)
+        """
+        if not self._connected:
+            return False
+
+        self._night_mode_on = enabled
+        logger.info(f"Night mode {'on' if enabled else 'off'}")
+
+        if self._imaging_service and self._video_source_token:
+            try:
+                # Get current settings
+                settings = self._imaging_service.GetImagingSettings({
+                    'VideoSourceToken': self._video_source_token
+                })
+
+                request = self._imaging_service.create_type('SetImagingSettings')
+                request.VideoSourceToken = self._video_source_token
+                request.ImagingSettings = settings
+
+                # Set IR cut filter mode
+                # OFF = night mode (IR passes through), ON = day mode, AUTO = automatic
+                if hasattr(settings, 'IrCutFilter') or True:  # Try anyway
+                    request.ImagingSettings.IrCutFilter = 'OFF' if enabled else 'AUTO'
+                    self._imaging_service.SetImagingSettings(request)
+                    logger.info(f"Night mode set via IrCutFilter")
+                    return True
+
+            except Exception as e:
+                logger.debug(f"Could not set night mode via imaging: {e}")
+
+        # Try auxiliary command
+        try:
+            aux_data = 'tt:NightMode' if enabled else 'tt:DayMode'
+            request = self._ptz_service.create_type('SendAuxiliaryCommand')
+            request.ProfileToken = self._profile_token
+            request.AuxiliaryData = aux_data
+            self._ptz_service.SendAuxiliaryCommand(request)
+            return True
+        except Exception as e:
+            logger.debug(f"Night mode auxiliary command failed: {e}")
+
+        logger.warning("Night mode control not supported by this camera")
+        return False
+
+    def get_imaging_status(self) -> dict:
+        """Get current imaging settings status."""
+        status = {
+            'ir_light': self._ir_light_on,
+            'night_mode': self._night_mode_on,
+            'imaging_available': self._imaging_service is not None
+        }
+
+        if self._imaging_service and self._video_source_token:
+            try:
+                settings = self._imaging_service.GetImagingSettings({
+                    'VideoSourceToken': self._video_source_token
+                })
+                if hasattr(settings, 'IrCutFilter'):
+                    status['ir_cut_filter'] = str(settings.IrCutFilter)
+                    # Night mode is typically when IrCutFilter is OFF
+                    status['night_mode'] = settings.IrCutFilter == 'OFF'
+                    self._night_mode_on = status['night_mode']
+            except Exception as e:
+                logger.debug(f"Could not get imaging status: {e}")
+
+        return status
+
+    def pan_tilt_reset(self) -> bool:
+        """
+        Perform pan/tilt correction (positional reset/calibration).
+        This recalibrates the camera's pan and tilt position.
+        """
+        if not self._connected:
+            return False
+
+        logger.info("Performing pan/tilt correction reset...")
+
+        # Stop any current movement first
+        self.stop()
+
+        # Try multiple methods - cameras vary in how they expose this
+
+        # Method 1: Try auxiliary command (most common for PTZ reset)
+        aux_commands = [
+            'tt:PTReset',           # Common reset command
+            'tt:PanTiltReset',      # Alternative naming
+            'tt:Calibration',       # Some cameras use this
+            'tt:PositionReset',     # Another variant
+            'tt:HomeReset',         # Reset to factory home
+            'PTReset',              # Without tt: prefix
+            'PanTiltCorrection',    # Direct naming
+        ]
+
+        for aux_cmd in aux_commands:
+            try:
+                request = self._ptz_service.create_type('SendAuxiliaryCommand')
+                request.ProfileToken = self._profile_token
+                request.AuxiliaryData = aux_cmd
+                self._ptz_service.SendAuxiliaryCommand(request)
+                logger.info(f"Pan/tilt reset sent via auxiliary command: {aux_cmd}")
+                return True
+            except Exception as e:
+                logger.debug(f"Auxiliary command {aux_cmd} failed: {e}")
+                continue
+
+        # Method 2: Try SetHomePosition then GotoHome (resets to a known state)
+        try:
+            # First try to set current position as home, then reset
+            request = self._ptz_service.create_type('SetHomePosition')
+            request.ProfileToken = self._profile_token
+            self._ptz_service.SetHomePosition(request)
+            logger.info("Set home position for reset")
+        except Exception as e:
+            logger.debug(f"SetHomePosition failed: {e}")
+
+        # Method 3: Move to absolute 0,0 position (center)
+        try:
+            request = self._ptz_service.create_type('AbsoluteMove')
+            request.ProfileToken = self._profile_token
+            request.Position = {
+                'PanTilt': {'x': 0, 'y': 0},
+                'Zoom': {'x': 0}
+            }
+            self._ptz_service.AbsoluteMove(request)
+            logger.info("Pan/tilt reset via AbsoluteMove to 0,0")
+            self._is_home = True
+            return True
+        except Exception as e:
+            logger.debug(f"AbsoluteMove failed: {e}")
+
+        # Method 4: Try going to home position as fallback
+        try:
+            self.go_home()
+            logger.info("Pan/tilt reset via GotoHomePosition")
+            return True
+        except Exception as e:
+            logger.debug(f"GotoHome failed: {e}")
+
+        logger.warning("Pan/tilt reset not supported by this camera")
+        return False

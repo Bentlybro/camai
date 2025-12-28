@@ -4,7 +4,8 @@ from fastapi import APIRouter, HTTPException
 
 from ..models import (
     DetectionSettings, PTZSettings, PTZConnectionSettings,
-    PoseSettings, ClassifierSettings, DisplaySettings, StreamSettings
+    PoseSettings, ClassifierSettings, DisplaySettings, StreamSettings,
+    NotificationSettings, DiscordSettings, MQTTSettings
 )
 from config import load_user_settings, save_user_settings
 
@@ -256,3 +257,117 @@ async def update_stream(settings: StreamSettings):
 
     logger.info(f"Updated stream: {settings.width}x{settings.height}")
     return {"status": "ok", "message": f"Resolution changed to {settings.width}x{settings.height}"}
+
+
+@router.get("/notifications")
+async def get_notifications():
+    """Get current notification settings."""
+    cfg = _state["config"]
+    if not cfg:
+        raise HTTPException(status_code=503, detail="Config not loaded")
+
+    return {
+        "discord": {
+            "enabled": cfg.enable_discord,
+            "webhook_url": cfg.discord_webhook or "",
+        },
+        "mqtt": {
+            "enabled": cfg.enable_mqtt,
+            "broker": cfg.mqtt_broker,
+            "port": cfg.mqtt_port,
+            "topic": cfg.mqtt_topic,
+        },
+        "save_snapshots": cfg.save_snapshots,
+    }
+
+
+@router.post("/notifications")
+async def update_notifications(settings: NotificationSettings):
+    """Update notification settings."""
+    cfg = _state["config"]
+
+    if cfg:
+        # Update Discord settings
+        cfg.enable_discord = settings.discord.enabled
+        if settings.discord.webhook_url:
+            cfg.discord_webhook = settings.discord.webhook_url
+
+        # Update MQTT settings
+        cfg.enable_mqtt = settings.mqtt.enabled
+        cfg.mqtt_broker = settings.mqtt.broker
+        cfg.mqtt_port = settings.mqtt.port
+        cfg.mqtt_topic = settings.mqtt.topic
+
+        # Update snapshot setting
+        cfg.save_snapshots = settings.save_snapshots
+
+    # Save to settings.json
+    user_settings = load_user_settings()
+    user_settings["notifications"] = {
+        "discord": {
+            "enabled": settings.discord.enabled,
+            "webhook_url": settings.discord.webhook_url,
+        },
+        "mqtt": {
+            "enabled": settings.mqtt.enabled,
+            "broker": settings.mqtt.broker,
+            "port": settings.mqtt.port,
+            "topic": settings.mqtt.topic,
+        },
+        "save_snapshots": settings.save_snapshots,
+    }
+    save_user_settings(user_settings)
+
+    logger.info(f"Updated notifications: discord={settings.discord.enabled}, mqtt={settings.mqtt.enabled}")
+    return {"status": "ok"}
+
+
+@router.post("/notifications/discord")
+async def update_discord(settings: DiscordSettings):
+    """Update Discord notification settings."""
+    cfg = _state["config"]
+
+    if cfg:
+        cfg.enable_discord = settings.enabled
+        if settings.webhook_url:
+            cfg.discord_webhook = settings.webhook_url
+
+    # Save to settings.json
+    user_settings = load_user_settings()
+    if "notifications" not in user_settings:
+        user_settings["notifications"] = {}
+    user_settings["notifications"]["discord"] = {
+        "enabled": settings.enabled,
+        "webhook_url": settings.webhook_url,
+    }
+    save_user_settings(user_settings)
+
+    logger.info(f"Updated Discord: enabled={settings.enabled}")
+    return {"status": "ok"}
+
+
+@router.post("/notifications/mqtt")
+async def update_mqtt(settings: MQTTSettings):
+    """Update MQTT notification settings."""
+    cfg = _state["config"]
+
+    if cfg:
+        cfg.enable_mqtt = settings.enabled
+        cfg.mqtt_broker = settings.broker
+        cfg.mqtt_port = settings.port
+        cfg.mqtt_topic = settings.topic
+
+    # Save to settings.json
+    user_settings = load_user_settings()
+    if "notifications" not in user_settings:
+        user_settings["notifications"] = {}
+    user_settings["notifications"]["mqtt"] = {
+        "enabled": settings.enabled,
+        "broker": settings.broker,
+        "port": settings.port,
+        "topic": settings.topic,
+    }
+    save_user_settings(user_settings)
+
+    logger.info(f"Updated MQTT: enabled={settings.enabled}, broker={settings.broker}")
+    return {"status": "ok"}

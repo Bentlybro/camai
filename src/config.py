@@ -148,14 +148,20 @@ class Config:
         self.person_cooldown = float(os.getenv("PERSON_COOLDOWN", "30.0"))
         self.vehicle_stop_time = float(os.getenv("VEHICLE_STOP_TIME", "5.0"))
 
-        # Notifications - from .env
-        self.enable_mqtt = os.getenv("ENABLE_MQTT", "false").lower() == "true"
-        self.mqtt_broker = os.getenv("MQTT_BROKER", "localhost")
-        self.mqtt_port = int(os.getenv("MQTT_PORT", "1883"))
-        self.mqtt_topic = os.getenv("MQTT_TOPIC", "camai/events")
-        self.enable_discord = os.getenv("ENABLE_DISCORD", "false").lower() == "true"
-        self.discord_webhook = os.getenv("DISCORD_WEBHOOK")
-        self.save_snapshots = os.getenv("SAVE_SNAPSHOTS", "true").lower() == "true"
+        # Notifications - prefer settings.json, fallback to .env
+        notif_cfg = user.get("notifications", {})
+        discord_cfg = notif_cfg.get("discord", {})
+        mqtt_cfg = notif_cfg.get("mqtt", {})
+
+        self.enable_discord = discord_cfg.get("enabled", os.getenv("ENABLE_DISCORD", "false").lower() == "true")
+        self.discord_webhook = discord_cfg.get("webhook_url") or os.getenv("DISCORD_WEBHOOK")
+
+        self.enable_mqtt = mqtt_cfg.get("enabled", os.getenv("ENABLE_MQTT", "false").lower() == "true")
+        self.mqtt_broker = mqtt_cfg.get("broker") or os.getenv("MQTT_BROKER", "localhost")
+        self.mqtt_port = mqtt_cfg.get("port") or int(os.getenv("MQTT_PORT", "1883"))
+        self.mqtt_topic = mqtt_cfg.get("topic") or os.getenv("MQTT_TOPIC", "camai/events")
+
+        self.save_snapshots = notif_cfg.get("save_snapshots", os.getenv("SAVE_SNAPSHOTS", "true").lower() == "true")
         self.snapshot_dir = os.getenv("SNAPSHOT_DIR", "snapshots")
         self.log_dir = os.getenv("LOG_DIR", "logs")
 

@@ -19,6 +19,7 @@ class CAMAIDashboard {
         this.setupModal();
         this.setupEventFilter();
         this.setupFullscreen();
+        this.setupNotificationControls();
         this.loadSettings();
         this.loadEvents();
         this.loadSnapshots();
@@ -91,6 +92,9 @@ class CAMAIDashboard {
             this.loadSnapshots();
         } else if (pageName === 'settings') {
             this.loadSettings();
+            this.loadNotifications();
+        } else if (pageName === 'stats') {
+            this.loadStatsPage();
         }
     }
 
@@ -356,8 +360,22 @@ class CAMAIDashboard {
             this.ptzSavePreset();
         });
 
-        // Load presets
+        // Camera control buttons (light/night mode)
+        document.getElementById('btn-ir-light')?.addEventListener('click', () => {
+            this.toggleIRLight();
+        });
+
+        document.getElementById('btn-night-mode')?.addEventListener('click', () => {
+            this.toggleNightMode();
+        });
+
+        document.getElementById('btn-ptz-reset')?.addEventListener('click', () => {
+            this.confirmPTZReset();
+        });
+
+        // Load presets and imaging status
         this.loadPTZPresets();
+        this.loadImagingStatus();
     }
 
     async ptzHome() {
@@ -481,6 +499,108 @@ class CAMAIDashboard {
             }
         } catch (e) {
             console.error('Failed to check PTZ status:', e);
+        }
+    }
+
+    async loadImagingStatus() {
+        try {
+            const response = await fetch('/api/ptz/imaging');
+            const status = await response.json();
+
+            // Update button states
+            const lightBtn = document.getElementById('btn-ir-light');
+            const nightBtn = document.getElementById('btn-night-mode');
+
+            if (lightBtn) {
+                lightBtn.classList.toggle('active', status.ir_light);
+            }
+            if (nightBtn) {
+                nightBtn.classList.toggle('active', status.night_mode);
+            }
+        } catch (e) {
+            console.error('Failed to load imaging status:', e);
+        }
+    }
+
+    async toggleIRLight() {
+        const btn = document.getElementById('btn-ir-light');
+        const isActive = btn?.classList.contains('active');
+
+        try {
+            const response = await fetch(`/api/ptz/light?enabled=${!isActive}`, {
+                method: 'POST'
+            });
+            const result = await response.json();
+
+            if (btn) {
+                btn.classList.toggle('active', result.ir_light);
+            }
+
+            if (result.status === 'unsupported') {
+                console.warn('IR light control not supported by camera');
+            }
+        } catch (e) {
+            console.error('Failed to toggle IR light:', e);
+        }
+    }
+
+    async toggleNightMode() {
+        const btn = document.getElementById('btn-night-mode');
+        const isActive = btn?.classList.contains('active');
+
+        try {
+            const response = await fetch(`/api/ptz/night-mode?enabled=${!isActive}`, {
+                method: 'POST'
+            });
+            const result = await response.json();
+
+            if (btn) {
+                btn.classList.toggle('active', result.night_mode);
+            }
+
+            if (result.status === 'unsupported') {
+                console.warn('Night mode control not supported by camera');
+            }
+        } catch (e) {
+            console.error('Failed to toggle night mode:', e);
+        }
+    }
+
+    confirmPTZReset() {
+        if (confirm('Are you sure you want to reset the camera?\n\nThis will perform a pan/tilt correction which recalibrates the camera position.')) {
+            this.ptzReset();
+        }
+    }
+
+    async ptzReset() {
+        const btn = document.getElementById('btn-ptz-reset');
+        if (btn) {
+            btn.disabled = true;
+            btn.querySelector('.camera-btn-label').textContent = 'Resetting...';
+        }
+
+        try {
+            const response = await fetch('/api/ptz/reset', {
+                method: 'POST'
+            });
+            const result = await response.json();
+
+            if (result.status === 'ok') {
+                alert('Pan/tilt correction initiated. The camera will recalibrate its position.');
+                // Update auto-track toggle since it gets disabled during reset
+                const toggle = document.getElementById('toggle-ptz');
+                if (toggle) toggle.checked = false;
+            } else {
+                alert(result.message || 'Reset command not supported by this camera.');
+            }
+        } catch (e) {
+            console.error('Failed to reset PTZ:', e);
+            alert('Failed to send reset command to camera.');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.querySelector('.camera-btn-label').textContent = 'Reset';
+            }
         }
     }
 
@@ -851,6 +971,195 @@ class CAMAIDashboard {
         } catch (e) {
             console.error('Failed to load snapshots:', e);
         }
+    }
+
+    // Notifications
+    setupNotificationControls() {
+        // Save button
+        document.getElementById('btn-save-notifications')?.addEventListener('click', () => {
+            this.saveNotifications();
+        });
+
+        // Test buttons
+        document.getElementById('btn-test-discord')?.addEventListener('click', () => {
+            this.testDiscord();
+        });
+
+        document.getElementById('btn-test-mqtt')?.addEventListener('click', () => {
+            this.testMQTT();
+        });
+    }
+
+    async loadNotifications() {
+        try {
+            const response = await fetch('/api/settings/notifications');
+            const settings = await response.json();
+
+            // Discord settings
+            const discordEnabled = document.getElementById('setting-discord-enabled');
+            if (discordEnabled) discordEnabled.checked = settings.discord?.enabled || false;
+
+            const discordWebhook = document.getElementById('setting-discord-webhook');
+            if (discordWebhook) discordWebhook.value = settings.discord?.webhook_url || '';
+
+            // MQTT settings
+            const mqttEnabled = document.getElementById('setting-mqtt-enabled');
+            if (mqttEnabled) mqttEnabled.checked = settings.mqtt?.enabled || false;
+
+            const mqttBroker = document.getElementById('setting-mqtt-broker');
+            if (mqttBroker) mqttBroker.value = settings.mqtt?.broker || 'localhost';
+
+            const mqttPort = document.getElementById('setting-mqtt-port');
+            if (mqttPort) mqttPort.value = settings.mqtt?.port || 1883;
+
+            const mqttTopic = document.getElementById('setting-mqtt-topic');
+            if (mqttTopic) mqttTopic.value = settings.mqtt?.topic || 'camai/events';
+
+        } catch (e) {
+            console.error('Failed to load notification settings:', e);
+        }
+    }
+
+    async saveNotifications() {
+        const settings = {
+            discord: {
+                enabled: document.getElementById('setting-discord-enabled')?.checked || false,
+                webhook_url: document.getElementById('setting-discord-webhook')?.value || ''
+            },
+            mqtt: {
+                enabled: document.getElementById('setting-mqtt-enabled')?.checked || false,
+                broker: document.getElementById('setting-mqtt-broker')?.value || 'localhost',
+                port: parseInt(document.getElementById('setting-mqtt-port')?.value) || 1883,
+                topic: document.getElementById('setting-mqtt-topic')?.value || 'camai/events'
+            },
+            save_snapshots: true
+        };
+
+        try {
+            const response = await fetch('/api/settings/notifications', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings)
+            });
+
+            const result = await response.json();
+            if (result.status === 'ok') {
+                alert('Notification settings saved!');
+            } else {
+                alert('Failed to save notification settings');
+            }
+        } catch (e) {
+            console.error('Failed to save notifications:', e);
+            alert('Failed to save notification settings');
+        }
+    }
+
+    async testDiscord() {
+        const webhook = document.getElementById('setting-discord-webhook')?.value;
+        if (!webhook) {
+            alert('Please enter a Discord webhook URL first');
+            return;
+        }
+
+        try {
+            const response = await fetch(webhook, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    content: 'CAMAI Test Message - Notifications are working!'
+                })
+            });
+
+            if (response.ok) {
+                alert('Test message sent to Discord!');
+            } else {
+                alert('Failed to send test message. Check your webhook URL.');
+            }
+        } catch (e) {
+            console.error('Discord test failed:', e);
+            alert('Failed to send test message. Check your webhook URL.');
+        }
+    }
+
+    async testMQTT() {
+        // MQTT test requires server-side implementation
+        alert('MQTT test requires the system to be running. Enable MQTT and save settings, then check your MQTT broker for messages.');
+    }
+
+    // Stats Page
+    async loadStatsPage() {
+        try {
+            const response = await fetch('/api/stats');
+            const stats = await response.json();
+
+            // Summary cards
+            document.getElementById('stats-total-people').textContent = stats.summary?.person_events || 0;
+            document.getElementById('stats-total-vehicles').textContent = stats.summary?.vehicle_events || 0;
+            document.getElementById('stats-total-packages').textContent = stats.summary?.package_events || 0;
+            document.getElementById('stats-total-events').textContent = stats.summary?.total_events_today || 0;
+
+            // System stats
+            document.getElementById('stats-avg-fps').textContent = `${stats.system?.fps || '--'} FPS`;
+            document.getElementById('stats-avg-inference').textContent = `${stats.system?.inference_ms || '--'} ms`;
+            document.getElementById('stats-total-frames').textContent = this.formatNumber(stats.system?.frame_count) || '--';
+            document.getElementById('stats-uptime').textContent = stats.system?.uptime_formatted || '--';
+
+            // Detection breakdown percentages
+            const total = (stats.detection_breakdown?.person || 0) +
+                         (stats.detection_breakdown?.vehicle || 0) +
+                         (stats.detection_breakdown?.package || 0);
+
+            if (total > 0) {
+                const personPct = Math.round((stats.detection_breakdown?.person || 0) / total * 100);
+                const vehiclePct = Math.round((stats.detection_breakdown?.vehicle || 0) / total * 100);
+                const packagePct = Math.round((stats.detection_breakdown?.package || 0) / total * 100);
+
+                document.getElementById('breakdown-person').style.width = `${personPct}%`;
+                document.getElementById('breakdown-person-pct').textContent = `${personPct}%`;
+
+                document.getElementById('breakdown-vehicle').style.width = `${vehiclePct}%`;
+                document.getElementById('breakdown-vehicle-pct').textContent = `${vehiclePct}%`;
+
+                document.getElementById('breakdown-package').style.width = `${packagePct}%`;
+                document.getElementById('breakdown-package-pct').textContent = `${packagePct}%`;
+            }
+
+            // Hourly bars
+            this.renderHourlyBars(stats.hourly || []);
+
+        } catch (e) {
+            console.error('Failed to load stats:', e);
+        }
+    }
+
+    renderHourlyBars(hourlyData) {
+        const container = document.getElementById('hourly-bars');
+        if (!container) return;
+
+        // Find max for scaling
+        const maxCount = Math.max(...hourlyData.map(h => h.count), 1);
+
+        // Only show hours with activity or current hour
+        const currentHour = new Date().getHours();
+        const relevantHours = hourlyData.filter(h => h.count > 0 || h.hour === currentHour);
+
+        if (relevantHours.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-secondary); padding: 1rem;">No activity recorded today</p>';
+            return;
+        }
+
+        container.innerHTML = hourlyData.map(h => {
+            const height = Math.max(5, (h.count / maxCount) * 100);
+            const isCurrentHour = h.hour === currentHour;
+            return `
+                <div class="hourly-bar-item ${isCurrentHour ? 'current' : ''}">
+                    <div class="hourly-bar" style="height: ${height}%" title="${h.count} events">
+                        ${h.count > 0 ? `<span class="bar-count">${h.count}</span>` : ''}
+                    </div>
+                    <span class="hourly-label">${h.hour}</span>
+                </div>
+            `;
+        }).join('');
     }
 }
 
