@@ -18,6 +18,10 @@ class Detection:
     bbox: Tuple[int, int, int, int]  # x1, y1, x2, y2
     center: Tuple[int, int]
     area: int
+    # Classification info (populated by classifier)
+    color: str = ""
+    description: str = ""
+    signature: str = ""  # Unique identifier like "black_truck" for tracking
 
 
 class YOLODetector:

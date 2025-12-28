@@ -30,9 +30,11 @@ class Event:
     confidence: float
     bbox: tuple
     metadata: dict = field(default_factory=dict)
+    color: str = ""
+    description: str = ""
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "type": self.event_type.value,
             "timestamp": self.timestamp,
             "class": self.class_name,
@@ -40,6 +42,11 @@ class Event:
             "bbox": [int(x) for x in self.bbox],
             **{k: float(v) if hasattr(v, 'item') else v for k, v in self.metadata.items()}
         }
+        if self.color:
+            result["color"] = self.color
+        if self.description:
+            result["description"] = self.description
+        return result
 
 
 @dataclass
@@ -52,6 +59,10 @@ class TrackedObject:
     bbox: tuple
     confidence: float
     reported: bool = False
+    # Classification info
+    color: str = ""
+    description: str = ""
+    signature: str = ""  # e.g., "black_truck" for better matching
 
 
 class EventDetector:
@@ -71,13 +82,22 @@ class EventDetector:
 
         self._objects: Dict[int, TrackedObject] = {}
         self._next_id = 0
-        self._last_events: Dict[str, float] = {}  # Cooldowns per event type
-        self._event_cooldown = 10.0  # Seconds between same event type
+        self._last_events: Dict[str, float] = {}  # Cooldowns per event type (for dwell/stopped events)
+        self._event_cooldown = 10.0  # Seconds between same dwell/stopped event type
         self._callbacks: List[Callable] = []
 
         # Track parked vehicles to prevent spam from stationary cars
         self._parked_vehicles: Dict[int, dict] = {}  # id -> {bbox, last_seen}
         self._parked_expiry = 300.0  # Forget parked cars after 5 minutes of not seeing them
+
+        # Track recent detection positions to prevent spam from same location
+        self._recent_detections: Dict[str, List[dict]] = {"person": [], "vehicle": [], "package": []}
+        self._detection_location_cooldown = 30.0  # Seconds before same spot can trigger again
+        self._location_iou_threshold = 0.5  # How much overlap = "same spot"
+
+        # Time-based cooldown for vehicle_detected (cars driving by)
+        self._vehicle_detected_cooldown = 15.0  # Seconds between vehicle_detected events
+        self._last_vehicle_detected = 0
 
     def on_event(self, callback: Callable[[Event], None]):
         """Register event callback."""
@@ -114,14 +134,26 @@ class EventDetector:
         return inter / union if union > 0 else 0
 
     def _match(self, det: Detection) -> Optional[int]:
-        """Match detection to tracked object."""
-        best_iou, best_id = 0, None
+        """Match detection to tracked object using class, position, and signature."""
+        best_score, best_id = 0, None
         for oid, obj in self._objects.items():
             if obj.class_name != det.class_name:
                 continue
+
             iou = self._iou(det.bbox, obj.bbox)
-            if iou > best_iou and iou >= self.iou_threshold:
-                best_iou, best_id = iou, oid
+            if iou < self.iou_threshold:
+                continue
+
+            # Base score is IoU
+            score = iou
+
+            # Boost score if signatures match (same color vehicle/person)
+            if det.signature and obj.signature and det.signature == obj.signature:
+                score += 0.3  # Significant boost for matching signature
+
+            if score > best_score:
+                best_score, best_id = score, oid
+
         return best_id
 
     def _is_parked_vehicle(self, det: Detection) -> bool:
@@ -138,8 +170,20 @@ class EventDetector:
 
             # Check if detection overlaps with parked position
             iou = self._iou(det.bbox, parked["bbox"])
-            if iou >= 0.4:  # Higher threshold for parked matching
+
+            # Base threshold
+            threshold = 0.4
+
+            # If signatures match (same color vehicle), lower the threshold
+            if det.signature and parked.get("signature") and det.signature == parked["signature"]:
+                threshold = 0.25  # More lenient for same-color vehicles
+
+            if iou >= threshold:
                 parked["last_seen"] = now
+                # Update signature if we have better info now
+                if det.signature and not parked.get("signature"):
+                    parked["signature"] = det.signature
+                    parked["color"] = det.color
                 return True
 
         return False
@@ -155,7 +199,34 @@ class EventDetector:
             "bbox": obj.bbox,
             "last_seen": time.time(),
             "class": obj.class_name,
+            "signature": obj.signature,  # e.g., "black_truck"
+            "color": obj.color,
         }
+
+    def _is_new_detection_location(self, det: Detection) -> bool:
+        """Check if this detection is at a new location (not recently seen)."""
+        now = time.time()
+        category = "person" if det.class_name == "person" else "vehicle" if det.class_name in ("car", "truck") else "package"
+
+        # Clean up old entries
+        self._recent_detections[category] = [
+            d for d in self._recent_detections[category]
+            if now - d["time"] < self._detection_location_cooldown
+        ]
+
+        # Check if this location was recently triggered
+        for recent in self._recent_detections[category]:
+            iou = self._iou(det.bbox, recent["bbox"])
+            if iou >= self._location_iou_threshold:
+                # Same location, still in cooldown
+                return False
+
+        # New location - record it
+        self._recent_detections[category].append({
+            "bbox": det.bbox,
+            "time": now
+        })
+        return True
 
     def update(self, detections: List[Detection], w: int = 0, h: int = 0) -> List[Event]:
         """Update with new detections, return events."""
@@ -173,6 +244,11 @@ class EventDetector:
                 obj.last_seen = now
                 obj.bbox = det.bbox
                 obj.confidence = det.confidence
+                # Update classification if available
+                if det.signature:
+                    obj.signature = det.signature
+                    obj.color = det.color
+                    obj.description = det.description
 
                 dwell = now - obj.first_seen
 
@@ -180,7 +256,8 @@ class EventDetector:
                 if obj.class_name == "person" and dwell >= self.person_dwell and not obj.reported:
                     if self._can_fire("person_dwelling"):
                         obj.reported = True
-                        event = Event(EventType.PERSON_DWELLING, now, "person", det.confidence, det.bbox, {"dwell": dwell})
+                        event = Event(EventType.PERSON_DWELLING, now, "person", det.confidence, det.bbox,
+                                      {"dwell": dwell}, color=obj.color, description=obj.description)
                         events.append(event)
                         self._fire(event)
 
@@ -190,7 +267,8 @@ class EventDetector:
                         obj.reported = True
                         # Add to parked vehicles list to prevent future spam
                         self._add_parked_vehicle(obj)
-                        event = Event(EventType.VEHICLE_STOPPED, now, obj.class_name, det.confidence, det.bbox, {"stop_time": dwell})
+                        event = Event(EventType.VEHICLE_STOPPED, now, obj.class_name, det.confidence, det.bbox,
+                                      {"stop_time": dwell}, color=obj.color, description=obj.description)
                         events.append(event)
                         self._fire(event)
 
@@ -202,19 +280,35 @@ class EventDetector:
 
                 oid = self._next_id
                 self._next_id += 1
-                self._objects[oid] = TrackedObject(oid, det.class_name, now, now, det.bbox, det.confidence)
+                self._objects[oid] = TrackedObject(
+                    id=oid,
+                    class_name=det.class_name,
+                    first_seen=now,
+                    last_seen=now,
+                    bbox=det.bbox,
+                    confidence=det.confidence,
+                    color=det.color,
+                    description=det.description,
+                    signature=det.signature
+                )
 
-                # Only fire events with cooldown to prevent spam
-                if det.class_name == "person" and self._can_fire("person_detected"):
-                    event = Event(EventType.PERSON_DETECTED, now, "person", det.confidence, det.bbox)
+                # Fire events - location-based for people/packages, time-based for vehicles
+                if det.class_name == "person" and self._is_new_detection_location(det):
+                    event = Event(EventType.PERSON_DETECTED, now, "person", det.confidence, det.bbox,
+                                  color=det.color, description=det.description)
                     events.append(event)
                     self._fire(event)
-                elif det.class_name in ("car", "truck") and self._can_fire("vehicle_detected"):
-                    event = Event(EventType.VEHICLE_DETECTED, now, det.class_name, det.confidence, det.bbox)
-                    events.append(event)
-                    self._fire(event)
-                elif det.class_name == "package" and self._can_fire("package_detected"):
-                    event = Event(EventType.PACKAGE_DETECTED, now, "package", det.confidence, det.bbox)
+                elif det.class_name in ("car", "truck"):
+                    # Use time-based cooldown for vehicles (they move across frame quickly)
+                    if now - self._last_vehicle_detected >= self._vehicle_detected_cooldown:
+                        self._last_vehicle_detected = now
+                        event = Event(EventType.VEHICLE_DETECTED, now, det.class_name, det.confidence, det.bbox,
+                                      color=det.color, description=det.description)
+                        events.append(event)
+                        self._fire(event)
+                elif det.class_name == "package" and self._is_new_detection_location(det):
+                    event = Event(EventType.PACKAGE_DETECTED, now, "package", det.confidence, det.bbox,
+                                  color=det.color, description=det.description)
                     events.append(event)
                     self._fire(event)
 

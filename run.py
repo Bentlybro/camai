@@ -27,6 +27,7 @@ from notifications import NotificationManager
 from stream import StreamServer, annotate_frame
 from ptz import PTZController, PTZConfig
 from pose import PoseEstimator
+from classifier import ImageClassifier
 import api
 
 # Also import from new modular structure (api uses this internally)
@@ -132,6 +133,16 @@ def main():
             log.warning("Pose estimation disabled - model failed to load")
             pose = None
 
+    # Image classifier (for better object identification)
+    classifier = None
+    if cfg.enable_classifier:
+        classifier = ImageClassifier(cfg.classifier_model_path, cfg.confidence)
+        if classifier.load():
+            log.info("Image classifier enabled")
+        else:
+            log.warning("Image classifier disabled - model failed to load")
+            classifier = None
+
     # Set API state
     api.set_state("config", cfg)
     api.set_state("detector", detector)
@@ -139,6 +150,7 @@ def main():
     api.set_state("events", events)
     api.set_state("ptz", ptz)
     api.set_state("pose", pose)
+    api.set_state("classifier", classifier)
     api.set_state("stream_server", stream)
 
     # Start components
@@ -192,6 +204,15 @@ def main():
                 elif d.class_name == "package" and cfg.detect_package:
                     detections.append(d)
 
+            # Classify detections for better identification
+            if classifier and detections:
+                for d in detections:
+                    result = classifier.classify(frame, d.bbox, d.class_name)
+                    if result:
+                        d.color = result.color
+                        d.description = result.description
+                        d.signature = f"{result.color}_{d.class_name}" if result.color else d.class_name
+
             # Update events
             _ = events.update(detections, frame.shape[1], frame.shape[0])
 
@@ -207,7 +228,7 @@ def main():
             # Update stream frames
             elapsed = time.time() - start_time
             fps = frame_count / elapsed if elapsed > 0 else 0
-            total_inf = detector.inference_ms + (pose.inference_ms if pose else 0)
+            total_inf = detector.inference_ms + (pose.inference_ms if pose else 0) + (classifier.inference_ms if classifier else 0)
 
             # Main stream gets annotations (if enabled)
             if cfg.show_overlays:

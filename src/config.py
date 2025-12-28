@@ -55,6 +55,10 @@ class Config:
     enable_pose: bool = False
     pose_model_path: str = "yolo11n-pose.engine"
 
+    # Image classification (for better object identification)
+    enable_classifier: bool = True
+    classifier_model_path: str = "yolo11n-cls.engine"
+
     # Classes: 0=person, 2=car, 7=truck, 24=backpack, 26=handbag, 28=suitcase
     target_classes: List[int] = field(default_factory=lambda: [0, 2, 7, 24, 26, 28])
     class_names: dict = field(default_factory=lambda: {
@@ -124,6 +128,10 @@ class Config:
         # Pose - prefer settings.json
         self.enable_pose = user.get("pose", {}).get("enabled", os.getenv("ENABLE_POSE", "false").lower() == "true")
         self.pose_model_path = os.getenv("POSE_MODEL_PATH", "yolo11n-pose.engine")
+
+        # Classifier - prefer settings.json
+        self.enable_classifier = user.get("classifier", {}).get("enabled", os.getenv("ENABLE_CLASSIFIER", "true").lower() == "true")
+        self.classifier_model_path = os.getenv("CLASSIFIER_MODEL_PATH", "yolo11n-cls.engine")
 
         # Detection toggles - prefer settings.json
         detection_cfg = user.get("detection", {})

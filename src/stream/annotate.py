@@ -38,7 +38,11 @@ def annotate_frame(
         color = colors.get(d.class_name, (128,128,128))
         cv2.rectangle(out, (x1,y1), (x2,y2), color, 2)
 
-        label = f"{d.class_name.upper()} {d.confidence:.0%}"
+        # Use description if available (includes color + type), otherwise fallback to class
+        if d.description:
+            label = f"{d.description.upper()} {d.confidence:.0%}"
+        else:
+            label = f"{d.class_name.upper()} {d.confidence:.0%}"
         cv2.putText(out, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
     # Draw pose skeletons if available
