@@ -14,6 +14,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 
+from config import load_user_settings, save_user_settings
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="CAMAI", description="Jetson AI Camera System")
@@ -176,6 +178,14 @@ async def update_detection_settings(settings: DetectionSettings):
         detector.confidence = settings.confidence
         detector.iou_threshold = settings.iou_threshold
 
+    # Save to settings.json
+    user_settings = load_user_settings()
+    user_settings["detection"] = {
+        "confidence": settings.confidence,
+        "iou_threshold": settings.iou_threshold,
+    }
+    save_user_settings(user_settings)
+
     logger.info(f"Updated detection: conf={settings.confidence}, iou={settings.iou_threshold}")
     return {"status": "ok"}
 
@@ -195,6 +205,15 @@ async def update_ptz_settings(settings: PTZSettings):
         ptz.config.track_speed = settings.track_speed
         ptz.config.deadzone = settings.deadzone
 
+    # Save to settings.json
+    user_settings = load_user_settings()
+    user_settings["ptz"] = {
+        "enabled": settings.enabled,
+        "track_speed": settings.track_speed,
+        "deadzone": settings.deadzone,
+    }
+    save_user_settings(user_settings)
+
     logger.info(f"Updated PTZ: enabled={settings.enabled}, speed={settings.track_speed}")
     return {"status": "ok"}
 
@@ -207,21 +226,41 @@ async def update_pose_settings(settings: PoseSettings):
     if cfg:
         cfg.enable_pose = settings.enabled
 
+    # Save to settings.json
+    user_settings = load_user_settings()
+    user_settings["pose"] = {"enabled": settings.enabled}
+    save_user_settings(user_settings)
+
     logger.info(f"Updated pose: enabled={settings.enabled}")
     return {"status": "ok", "note": "Restart required for pose model changes"}
 
 
 @app.post("/api/settings/stream")
 async def update_stream_settings(settings: StreamSettings):
-    """Update stream/resolution settings."""
+    """Update stream/resolution settings and restart capture."""
     cfg = _state["config"]
+    capture = _state["capture"]
 
     if cfg:
         cfg.capture_width = settings.width
         cfg.capture_height = settings.height
 
+    # Save to settings.json
+    user_settings = load_user_settings()
+    user_settings["stream"] = {
+        "width": settings.width,
+        "height": settings.height,
+        "quality": settings.quality,
+    }
+    save_user_settings(user_settings)
+
+    # Restart capture with new resolution
+    if capture:
+        logger.info(f"Restarting capture with new resolution: {settings.width}x{settings.height}")
+        capture.restart(settings.width, settings.height)
+
     logger.info(f"Updated stream: {settings.width}x{settings.height}")
-    return {"status": "ok", "note": "Restart required for resolution changes"}
+    return {"status": "ok", "message": f"Resolution changed to {settings.width}x{settings.height}"}
 
 
 # ============== PTZ Control ==============

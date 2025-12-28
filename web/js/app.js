@@ -302,7 +302,11 @@ class CAMAIDashboard {
             });
 
             const result = await response.json();
-            alert(`Resolution set to ${width}x${height}. Please restart CAMAI for changes to take effect.`);
+            if (result.status === 'ok') {
+                alert(`Resolution changed to ${width}x${height}. Stream will restart momentarily.`);
+            } else {
+                alert('Failed to update resolution');
+            }
         } catch (e) {
             console.error('Failed to update resolution:', e);
             alert('Failed to update resolution');

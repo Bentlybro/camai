@@ -91,3 +91,17 @@ class RTSPCapture:
     @property
     def is_connected(self) -> bool:
         return self._connected
+
+    def restart(self, width: int = None, height: int = None):
+        """Restart capture with optional new resolution."""
+        if width:
+            self.width = width
+        if height:
+            self.height = height
+
+        self.stop()
+        if self._thread:
+            self._thread.join(timeout=2)
+        self._frame = None
+        time.sleep(0.5)
+        self.start()
