@@ -8,10 +8,64 @@ from datetime import datetime
 from queue import Queue, Empty
 from typing import Optional
 import numpy as np
+import cv2
 
 from events import Event
 
 logger = logging.getLogger(__name__)
+
+
+def annotate_snapshot(frame: np.ndarray, event: Event) -> np.ndarray:
+    """Draw bounding box and label on snapshot."""
+    if frame is None:
+        return frame
+
+    annotated = frame.copy()
+    bbox = event.bbox
+
+    if not bbox or len(bbox) < 4:
+        return annotated
+
+    x1, y1, x2, y2 = [int(c) for c in bbox]
+
+    # Choose color based on event type
+    colors = {
+        "person": (0, 255, 0),      # Green
+        "car": (255, 165, 0),        # Orange
+        "truck": (255, 165, 0),      # Orange
+        "package": (255, 0, 255),    # Magenta
+    }
+    color = colors.get(event.class_name, (0, 255, 255))  # Default yellow
+
+    # Draw bounding box
+    cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 3)
+
+    # Build label
+    label = event.description if event.description else event.class_name
+    conf_text = f"{event.confidence:.0%}"
+    full_label = f"{label} {conf_text}"
+
+    # Draw label background
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.7
+    thickness = 2
+    (text_w, text_h), baseline = cv2.getTextSize(full_label, font, font_scale, thickness)
+
+    # Position label above box, or below if near top
+    label_y = y1 - 10 if y1 > 30 else y2 + text_h + 10
+    label_x = x1
+
+    # Draw background rectangle for text
+    cv2.rectangle(annotated,
+                  (label_x, label_y - text_h - 5),
+                  (label_x + text_w + 10, label_y + 5),
+                  color, -1)
+
+    # Draw text
+    cv2.putText(annotated, full_label, (label_x + 5, label_y),
+                font, font_scale, (0, 0, 0), thickness)
+
+    return annotated
 
 
 class NotificationManager:
@@ -124,17 +178,17 @@ class FileLogger:
         return f"/api/snapshots/{filename}"
 
     def send(self, event: Event, snapshot: np.ndarray = None):
-        import cv2
-
         entry = event.to_dict()
         entry["timestamp_iso"] = datetime.fromtimestamp(event.timestamp).isoformat()
 
-        # Save snapshot
+        # Save snapshot with annotation
         if snapshot is not None:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"{event.event_type.value}_{ts}.jpg"
             path = self.snapshot_dir / filename
-            cv2.imwrite(str(path), snapshot)
+            # Annotate snapshot with bounding box
+            annotated = annotate_snapshot(snapshot, event)
+            cv2.imwrite(str(path), annotated)
             entry["snapshot"] = str(path)
             self._last_snapshot_path = f"/api/snapshots/{filename}"
         else:
@@ -189,7 +243,6 @@ class DiscordHandler:
 
     def send(self, event: Event, snapshot: np.ndarray = None):
         import requests
-        import cv2
         import io
 
         colors = {
@@ -200,15 +253,20 @@ class DiscordHandler:
             "package_detected": 0x9b59b6,
         }
 
+        # Build description with more detail
+        description = event.description if event.description else event.class_name
+
         embed = {
             "title": event.event_type.value.replace("_", " ").title(),
             "color": colors.get(event.event_type.value, 0x95a5a6),
             "timestamp": datetime.fromtimestamp(event.timestamp).isoformat(),
-            "fields": [{"name": "Detection", "value": f"{event.class_name} ({event.confidence:.0%})", "inline": True}]
+            "fields": [{"name": "Detection", "value": f"{description} ({event.confidence:.0%})", "inline": True}]
         }
 
         if snapshot is not None:
-            _, buf = cv2.imencode('.jpg', snapshot)
+            # Annotate snapshot with bounding box
+            annotated = annotate_snapshot(snapshot, event)
+            _, buf = cv2.imencode('.jpg', annotated)
             files = {"file": ("snapshot.jpg", io.BytesIO(buf.tobytes()), "image/jpeg")}
             embed["image"] = {"url": "attachment://snapshot.jpg"}
             requests.post(self.url, data={"payload_json": json.dumps({"embeds": [embed]})}, files=files, timeout=10)

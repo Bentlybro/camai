@@ -83,12 +83,13 @@ class EventDetector:
         self._objects: Dict[int, TrackedObject] = {}
         self._next_id = 0
         self._last_events: Dict[str, float] = {}  # Cooldowns per event type (for dwell/stopped events)
-        self._event_cooldown = 10.0  # Seconds between same dwell/stopped event type
+        self._event_cooldown = 30.0  # Seconds between same dwell/stopped event type
         self._callbacks: List[Callable] = []
 
-        # Track parked vehicles to prevent spam from stationary cars
-        self._parked_vehicles: Dict[int, dict] = {}  # id -> {bbox, last_seen}
-        self._parked_expiry = 300.0  # Forget parked cars after 5 minutes of not seeing them
+        # Track parked/stationary vehicles to prevent spam
+        self._parked_vehicles: Dict[int, dict] = {}  # id -> {bbox, last_seen, signature}
+        self._parked_expiry = 1800.0  # Forget parked cars after 30 minutes of not seeing them
+        self._parked_iou_threshold = 0.25  # Low threshold = aggressive matching for parked cars
 
         # Track recent detection positions to prevent spam from same location
         self._recent_detections: Dict[str, List[dict]] = {"person": [], "vehicle": [], "package": []}
@@ -96,21 +97,35 @@ class EventDetector:
         self._location_iou_threshold = 0.5  # How much overlap = "same spot"
 
         # Time-based cooldown for vehicle_detected (cars driving by)
-        self._vehicle_detected_cooldown = 15.0  # Seconds between vehicle_detected events
+        self._vehicle_detected_cooldown = 10.0  # Short cooldown - we want to see fast cars
         self._last_vehicle_detected = 0
+
+        # Global rate limiting - max notifications per minute
+        self._notification_times: List[float] = []
+        self._max_notifications_per_minute = 10
 
     def on_event(self, callback: Callable[[Event], None]):
         """Register event callback."""
         self._callbacks.append(callback)
 
     def _can_fire(self, event_type: str) -> bool:
-        """Check if we can fire this event type (cooldown check)."""
+        """Check if we can fire this event type (cooldown + rate limit check)."""
         now = time.time()
+
+        # Check per-event-type cooldown
         last = self._last_events.get(event_type, 0)
-        if now - last >= self._event_cooldown:
-            self._last_events[event_type] = now
-            return True
-        return False
+        if now - last < self._event_cooldown:
+            return False
+
+        # Check global rate limit
+        self._notification_times = [t for t in self._notification_times if now - t < 60]
+        if len(self._notification_times) >= self._max_notifications_per_minute:
+            logger.debug(f"Rate limited: {len(self._notification_times)} notifications in last minute")
+            return False
+
+        self._last_events[event_type] = now
+        self._notification_times.append(now)
+        return True
 
     def _fire(self, event: Event):
         """Fire event to callbacks."""
@@ -159,7 +174,7 @@ class EventDetector:
         return best_id
 
     def _is_parked_vehicle(self, det: Detection) -> bool:
-        """Check if detection matches a known parked vehicle position."""
+        """Check if detection matches a known parked/stationary vehicle position."""
         if det.class_name not in ("car", "truck"):
             return False
 
@@ -173,15 +188,13 @@ class EventDetector:
             # Check if detection overlaps with parked position
             iou = self._iou(det.bbox, parked["bbox"])
 
-            # Base threshold
-            threshold = 0.4
-
-            # If signatures match (same color vehicle), lower the threshold
-            if det.signature and parked.get("signature") and det.signature == parked["signature"]:
-                threshold = 0.25  # More lenient for same-color vehicles
+            # Very aggressive threshold for parked cars
+            threshold = self._parked_iou_threshold  # 0.25
 
             if iou >= threshold:
                 parked["last_seen"] = now
+                # Update bbox to track slight movements (camera shake, etc)
+                parked["bbox"] = det.bbox
                 # Update signature if we have better info now
                 if det.signature and not parked.get("signature"):
                     parked["signature"] = det.signature
@@ -189,6 +202,26 @@ class EventDetector:
                 return True
 
         return False
+
+    def _add_to_parked_immediately(self, det: Detection):
+        """Add a vehicle to parked list immediately when first detected in a stationary position."""
+        if det.class_name not in ("car", "truck"):
+            return
+
+        # Use grid-based ID for position
+        cx = (det.bbox[0] + det.bbox[2]) // 2
+        cy = (det.bbox[1] + det.bbox[3]) // 2
+        pid = hash((cx // 50, cy // 50))
+
+        # Only add if not already tracked
+        if pid not in self._parked_vehicles:
+            self._parked_vehicles[pid] = {
+                "bbox": det.bbox,
+                "last_seen": time.time(),
+                "class": det.class_name,
+                "signature": det.signature,
+                "color": det.color,
+            }
 
     def _add_parked_vehicle(self, obj: TrackedObject):
         """Add a vehicle to the parked list."""
@@ -294,14 +327,19 @@ class EventDetector:
                     signature=det.signature
                 )
 
-                # Fire events - location-based for people/packages, time-based for vehicles
+                # Add vehicles to parked list immediately when first seen
+                # This prevents re-triggering if tracking is lost briefly
+                if det.class_name in ("car", "truck"):
+                    self._add_to_parked_immediately(det)
+
+                # Fire events - location-based for all types
                 if det.class_name == "person" and self._is_new_detection_location(det):
                     event = Event(EventType.PERSON_DETECTED, now, "person", det.confidence, det.bbox,
                                   color=det.color, description=det.description)
                     events.append(event)
                     self._fire(event)
                 elif det.class_name in ("car", "truck"):
-                    # Use time-based cooldown for vehicles (they move across frame quickly)
+                    # Check time-based cooldown for vehicles
                     if now - self._last_vehicle_detected >= self._vehicle_detected_cooldown:
                         self._last_vehicle_detected = now
                         event = Event(EventType.VEHICLE_DETECTED, now, det.class_name, det.confidence, det.bbox,
