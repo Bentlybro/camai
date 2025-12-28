@@ -1,4 +1,4 @@
-"""Backwards compatibility - import from notifications_pkg package."""
+"""Notification system - Discord, MQTT, file logging."""
 from notifications_pkg.handlers import (
     NotificationManager,
     FileLogger,

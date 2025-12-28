@@ -26,17 +26,17 @@ def parse_timestamp(ts):
     if isinstance(ts, (int, float)):
         try:
             return datetime.fromtimestamp(ts)
-        except:
+        except (ValueError, OSError, OverflowError):
             return None
     if isinstance(ts, str):
         try:
             return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        except:
+        except ValueError:
             pass
         # Try parsing as float string
         try:
             return datetime.fromtimestamp(float(ts))
-        except:
+        except (ValueError, OSError, OverflowError):
             pass
     return None
 
