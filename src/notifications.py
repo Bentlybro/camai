@@ -246,11 +246,13 @@ class DiscordHandler:
         import io
 
         colors = {
-            "person_detected": 0x3498db,
-            "person_dwelling": 0xe74c3c,
-            "vehicle_detected": 0xf39c12,
-            "vehicle_stopped": 0xe74c3c,
-            "package_detected": 0x9b59b6,
+            "person_detected": 0x3498db,    # Blue
+            "person_dwelling": 0xe74c3c,    # Red
+            "vehicle_detected": 0xf39c12,   # Orange
+            "vehicle_stopped": 0xf39c12,    # Orange
+            "vehicle_parked": 0x2ecc71,     # Green
+            "vehicle_left": 0x9b59b6,       # Purple
+            "package_detected": 0x9b59b6,   # Purple
         }
 
         # Build description with more detail

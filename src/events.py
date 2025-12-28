@@ -17,6 +17,8 @@ class EventType(Enum):
     PERSON_LEFT = "person_left"
     VEHICLE_DETECTED = "vehicle_detected"
     VEHICLE_STOPPED = "vehicle_stopped"
+    VEHICLE_PARKED = "vehicle_parked"
+    VEHICLE_LEFT = "vehicle_left"
     PACKAGE_DETECTED = "package_detected"
     PACKAGE_REMOVED = "package_removed"
 
@@ -82,14 +84,20 @@ class EventDetector:
 
         self._objects: Dict[int, TrackedObject] = {}
         self._next_id = 0
-        self._last_events: Dict[str, float] = {}  # Cooldowns per event type (for dwell/stopped events)
-        self._event_cooldown = 30.0  # Seconds between same dwell/stopped event type
+        self._last_events: Dict[str, float] = {}  # Cooldowns per event type
+        self._event_cooldown = 30.0  # Seconds between same event type
         self._callbacks: List[Callable] = []
 
-        # Track parked/stationary vehicles to prevent spam
-        self._parked_vehicles: Dict[int, dict] = {}  # id -> {bbox, last_seen, signature}
-        self._parked_expiry = 1800.0  # Forget parked cars after 30 minutes of not seeing them
-        self._parked_iou_threshold = 0.25  # Low threshold = aggressive matching for parked cars
+        # === PARKING DETECTION SYSTEM ===
+        # Parked vehicles: cars that have been stationary for 3+ minutes
+        self._parked_vehicles: Dict[int, dict] = {}  # pid -> {bbox, first_seen, last_seen, signature, notified}
+        self._parking_time = 180.0  # 3 minutes to be considered "parked"
+        self._parked_gone_timeout = 30.0  # 30 seconds of not seeing = car left
+        self._parked_iou_threshold = 0.3  # Threshold to match parked position
+
+        # Stopped vehicles: cars that stopped recently but not yet "parked"
+        self._stopped_vehicles: Dict[int, dict] = {}  # sid -> {bbox, first_seen, last_seen, signature, notified}
+        self._stopped_gone_timeout = 10.0  # 10 seconds of not seeing = car moved on
 
         # Track recent detection positions to prevent spam from same location
         self._recent_detections: Dict[str, List[dict]] = {"person": [], "vehicle": [], "package": []}
@@ -97,12 +105,17 @@ class EventDetector:
         self._location_iou_threshold = 0.5  # How much overlap = "same spot"
 
         # Time-based cooldown for vehicle_detected (cars driving by)
-        self._vehicle_detected_cooldown = 10.0  # Short cooldown - we want to see fast cars
+        self._vehicle_detected_cooldown = 10.0  # Short cooldown for moving vehicles
         self._last_vehicle_detected = 0
 
-        # Global rate limiting - max notifications per minute
+        # Global rate limiting
         self._notification_times: List[float] = []
         self._max_notifications_per_minute = 10
+
+        # Startup flag - register existing vehicles as parked after a delay
+        self._startup_time = time.time()
+        self._startup_scan_done = False
+        self._startup_scan_delay = 10.0  # Wait 10 seconds then scan for existing parked cars
 
     def on_event(self, callback: Callable[[Event], None]):
         """Register event callback."""
@@ -173,70 +186,137 @@ class EventDetector:
 
         return best_id
 
-    def _is_parked_vehicle(self, det: Detection) -> bool:
-        """Check if detection matches a known parked/stationary vehicle position."""
+    def _get_position_id(self, bbox: tuple) -> int:
+        """Get a grid-based position ID for a bounding box."""
+        cx = (bbox[0] + bbox[2]) // 2
+        cy = (bbox[1] + bbox[3]) // 2
+        return hash((cx // 40, cy // 40))  # 40-pixel grid
+
+    def _is_known_stationary_vehicle(self, det: Detection) -> bool:
+        """Check if detection matches a known parked or stopped vehicle."""
         if det.class_name not in ("car", "truck"):
             return False
 
         now = time.time()
+
+        # Check parked vehicles first
         for pid, parked in list(self._parked_vehicles.items()):
-            # Check if parked entry expired
-            if now - parked["last_seen"] > self._parked_expiry:
-                del self._parked_vehicles[pid]
-                continue
-
-            # Check if detection overlaps with parked position
             iou = self._iou(det.bbox, parked["bbox"])
-
-            # Very aggressive threshold for parked cars
-            threshold = self._parked_iou_threshold  # 0.25
-
-            if iou >= threshold:
+            if iou >= self._parked_iou_threshold:
                 parked["last_seen"] = now
-                # Update bbox to track slight movements (camera shake, etc)
-                parked["bbox"] = det.bbox
-                # Update signature if we have better info now
+                parked["bbox"] = det.bbox  # Update position (slight drift ok)
                 if det.signature and not parked.get("signature"):
                     parked["signature"] = det.signature
-                    parked["color"] = det.color
+                return True
+
+        # Check stopped vehicles
+        for sid, stopped in list(self._stopped_vehicles.items()):
+            iou = self._iou(det.bbox, stopped["bbox"])
+            if iou >= self._parked_iou_threshold:
+                stopped["last_seen"] = now
+                stopped["bbox"] = det.bbox
+                if det.signature and not stopped.get("signature"):
+                    stopped["signature"] = det.signature
                 return True
 
         return False
 
-    def _add_to_parked_immediately(self, det: Detection):
-        """Add a vehicle to parked list immediately when first detected in a stationary position."""
+    def _register_stopped_vehicle(self, det: Detection):
+        """Register a new stopped vehicle (will become parked after 3 min)."""
         if det.class_name not in ("car", "truck"):
             return
 
-        # Use grid-based ID for position
-        cx = (det.bbox[0] + det.bbox[2]) // 2
-        cy = (det.bbox[1] + det.bbox[3]) // 2
-        pid = hash((cx // 50, cy // 50))
+        sid = self._get_position_id(det.bbox)
 
-        # Only add if not already tracked
-        if pid not in self._parked_vehicles:
-            self._parked_vehicles[pid] = {
+        if sid not in self._stopped_vehicles:
+            now = time.time()
+            self._stopped_vehicles[sid] = {
                 "bbox": det.bbox,
-                "last_seen": time.time(),
+                "first_seen": now,
+                "last_seen": now,
                 "class": det.class_name,
                 "signature": det.signature,
                 "color": det.color,
+                "notified_stopped": False,
             }
+            logger.debug(f"Registered stopped vehicle at position {sid}")
 
-    def _add_parked_vehicle(self, obj: TrackedObject):
-        """Add a vehicle to the parked list."""
-        # Use a simple hash of the center position as ID
-        cx = (obj.bbox[0] + obj.bbox[2]) // 2
-        cy = (obj.bbox[1] + obj.bbox[3]) // 2
-        pid = hash((cx // 50, cy // 50))  # Grid-based ID
-
-        self._parked_vehicles[pid] = {
-            "bbox": obj.bbox,
-            "last_seen": time.time(),
-            "class": obj.class_name,
-            "signature": obj.signature,  # e.g., "black_truck"
-            "color": obj.color,
+    def _promote_to_parked(self, sid: int, stopped: dict) -> dict:
+        """Promote a stopped vehicle to parked status."""
+        pid = self._get_position_id(stopped["bbox"])
+        parked = {
+            "bbox": stopped["bbox"],
+            "first_seen": stopped["first_seen"],
+            "last_seen": stopped["last_seen"],
+            "class": stopped["class"],
+            "signature": stopped.get("signature"),
+            "color": stopped.get("color"),
         }
+        self._parked_vehicles[pid] = parked
+        del self._stopped_vehicles[sid]
+        logger.info(f"Vehicle promoted to PARKED at position {pid}")
+        return parked
+
+    def _update_parking_system(self, vehicle_detections: List[Detection]) -> List[Event]:
+        """Update the parking detection system and return any parking-related events."""
+        events = []
+        now = time.time()
+
+        # Startup scan: register existing vehicles as parked after delay
+        if not self._startup_scan_done and now - self._startup_time > self._startup_scan_delay:
+            self._startup_scan_done = True
+            for det in vehicle_detections:
+                if det.class_name in ("car", "truck"):
+                    pid = self._get_position_id(det.bbox)
+                    if pid not in self._parked_vehicles:
+                        self._parked_vehicles[pid] = {
+                            "bbox": det.bbox,
+                            "first_seen": now,
+                            "last_seen": now,
+                            "class": det.class_name,
+                            "signature": det.signature,
+                            "color": det.color,
+                        }
+                        logger.info(f"Startup: registered existing parked vehicle at {pid}")
+
+        # Check for stopped vehicles that should become parked (3+ min stationary)
+        for sid, stopped in list(self._stopped_vehicles.items()):
+            stationary_time = now - stopped["first_seen"]
+            if stationary_time >= self._parking_time:
+                parked = self._promote_to_parked(sid, stopped)
+                # Fire vehicle_parked event
+                if self._can_fire("vehicle_parked"):
+                    event = Event(
+                        EventType.VEHICLE_PARKED, now, parked["class"], 0.9,
+                        parked["bbox"], {"parked_duration": stationary_time},
+                        color=parked.get("color", ""), description=f"{parked.get('color', '')} {parked['class']} parked".strip()
+                    )
+                    events.append(event)
+                    self._fire(event)
+
+        # Check for stopped vehicles that left (not seen for 10 seconds)
+        for sid, stopped in list(self._stopped_vehicles.items()):
+            if now - stopped["last_seen"] > self._stopped_gone_timeout:
+                logger.debug(f"Stopped vehicle at {sid} moved on")
+                del self._stopped_vehicles[sid]
+
+        # Check for parked vehicles that left (not seen for 30 seconds)
+        for pid, parked in list(self._parked_vehicles.items()):
+            if now - parked["last_seen"] > self._parked_gone_timeout:
+                # Fire vehicle_left event
+                if self._can_fire("vehicle_left"):
+                    parked_duration = now - parked["first_seen"]
+                    event = Event(
+                        EventType.VEHICLE_LEFT, now, parked["class"], 0.9,
+                        parked["bbox"], {"parked_duration": parked_duration},
+                        color=parked.get("color", ""), description=f"{parked.get('color', '')} {parked['class']} left".strip()
+                    )
+                    events.append(event)
+                    self._fire(event)
+                logger.info(f"Parked vehicle at {pid} has LEFT")
+                del self._parked_vehicles[pid]
+
+        return events
 
     def _is_new_detection_location(self, det: Detection) -> bool:
         """Check if this detection is at a new location (not recently seen)."""
@@ -269,6 +349,13 @@ class EventDetector:
         events = []
         matched = set()
 
+        # Separate vehicle detections for parking system
+        vehicle_detections = [d for d in detections if d.class_name in ("car", "truck")]
+
+        # Update parking system (handles parked/left events)
+        parking_events = self._update_parking_system(vehicle_detections)
+        events.extend(parking_events)
+
         for det in detections:
             oid = self._match(det)
 
@@ -296,23 +383,25 @@ class EventDetector:
                         events.append(event)
                         self._fire(event)
 
-                # Vehicle stopped
+                # Vehicle stopped - register for parking tracking
                 elif obj.class_name in ("car", "truck") and dwell >= self.vehicle_stop and not obj.reported:
+                    obj.reported = True
+                    # Register as stopped (will become parked after 3 min)
+                    self._register_stopped_vehicle(det)
+                    # Fire vehicle_stopped event
                     if self._can_fire("vehicle_stopped"):
-                        obj.reported = True
-                        # Add to parked vehicles list to prevent future spam
-                        self._add_parked_vehicle(obj)
                         event = Event(EventType.VEHICLE_STOPPED, now, obj.class_name, det.confidence, det.bbox,
                                       {"stop_time": dwell}, color=obj.color, description=obj.description)
                         events.append(event)
                         self._fire(event)
 
             else:
-                # New object - but check if it's a known parked vehicle first
-                if self._is_parked_vehicle(det):
-                    # This is a parked car we already know about - don't create new tracking or events
+                # New object - check if it's a known stationary vehicle (parked or stopped)
+                if self._is_known_stationary_vehicle(det):
+                    # This is a parked/stopped car we're tracking - skip
                     continue
 
+                # Create new tracked object
                 oid = self._next_id
                 self._next_id += 1
                 self._objects[oid] = TrackedObject(
@@ -327,19 +416,14 @@ class EventDetector:
                     signature=det.signature
                 )
 
-                # Add vehicles to parked list immediately when first seen
-                # This prevents re-triggering if tracking is lost briefly
-                if det.class_name in ("car", "truck"):
-                    self._add_to_parked_immediately(det)
-
-                # Fire events - location-based for all types
+                # Fire events for new detections
                 if det.class_name == "person" and self._is_new_detection_location(det):
                     event = Event(EventType.PERSON_DETECTED, now, "person", det.confidence, det.bbox,
                                   color=det.color, description=det.description)
                     events.append(event)
                     self._fire(event)
                 elif det.class_name in ("car", "truck"):
-                    # Check time-based cooldown for vehicles
+                    # Only fire vehicle_detected for genuinely new vehicles (not parked/stopped)
                     if now - self._last_vehicle_detected >= self._vehicle_detected_cooldown:
                         self._last_vehicle_detected = now
                         event = Event(EventType.VEHICLE_DETECTED, now, det.class_name, det.confidence, det.bbox,
@@ -375,3 +459,12 @@ class EventDetector:
         for obj in self._objects.values():
             counts[obj.class_name] += 1
         return dict(counts)
+
+    @property
+    def parking_stats(self) -> dict:
+        """Return parking system statistics."""
+        return {
+            "parked_count": len(self._parked_vehicles),
+            "stopped_count": len(self._stopped_vehicles),
+            "parked_positions": list(self._parked_vehicles.keys()),
+        }
