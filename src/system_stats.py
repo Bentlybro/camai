@@ -53,8 +53,22 @@ class SystemStats:
 
     def get_cpu_stats(self) -> Dict:
         """Get CPU usage statistics."""
+        result = {
+            "usage_percent": 0,
+            "cores": os.cpu_count() or 0,
+            "load_avg": [0, 0, 0],
+        }
+
+        # Get load average
         try:
-            # Read /proc/stat for CPU usage
+            with open("/proc/loadavg", "r") as f:
+                parts = f.read().split()[:3]
+                result["load_avg"] = [float(parts[0]), float(parts[1]), float(parts[2])]
+        except Exception as e:
+            logger.debug(f"Could not read load average: {e}")
+
+        # Get CPU usage from /proc/stat
+        try:
             with open("/proc/stat", "r") as f:
                 line = f.readline()
                 parts = line.split()
@@ -62,30 +76,14 @@ class SystemStats:
                     user, nice, system, idle, iowait = map(int, parts[1:6])
                     total = user + nice + system + idle + iowait
                     usage = ((total - idle) / total) * 100 if total > 0 else 0
-
-                    return {
-                        "usage_percent": round(usage, 1),
-                        "cores": os.cpu_count() or 0,
-                    }
+                    result["usage_percent"] = round(usage, 1)
         except Exception as e:
             logger.debug(f"Could not read CPU stats: {e}")
+            # Fallback: estimate from load average
+            if result["load_avg"][0] > 0:
+                result["usage_percent"] = round(min((result["load_avg"][0] / result["cores"]) * 100, 100), 1)
 
-        # Fallback: try psutil-style reading
-        try:
-            with open("/proc/loadavg", "r") as f:
-                load1, load5, load15 = f.read().split()[:3]
-                cores = os.cpu_count() or 1
-                # Estimate usage from load average
-                usage = (float(load1) / cores) * 100
-                return {
-                    "usage_percent": round(min(usage, 100), 1),
-                    "cores": cores,
-                    "load_avg": [float(load1), float(load5), float(load15)],
-                }
-        except Exception:
-            pass
-
-        return {"usage_percent": 0, "cores": os.cpu_count() or 0}
+        return result
 
     def get_memory_stats(self) -> Dict:
         """Get RAM usage statistics."""

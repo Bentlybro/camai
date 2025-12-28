@@ -1163,8 +1163,10 @@ input[type="range"]::-webkit-slider-thumb {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: flex-end;
     flex: 1;
     min-width: 20px;
+    height: 130px;
 }
 
 .hourly-bar-item .hourly-bar {
@@ -1172,16 +1174,19 @@ input[type="range"]::-webkit-slider-thumb {
     max-width: 30px;
     position: relative;
     display: flex;
-    align-items: flex-end;
+    align-items: flex-start;
     justify-content: center;
+    min-height: 4px;
 }
 
 .hourly-bar-item .bar-count {
-    font-size: 0.6rem;
-    color: var(--bg-primary);
+    font-size: 0.65rem;
+    color: var(--text-primary);
     font-weight: 600;
     position: absolute;
-    top: 2px;
+    top: -18px;
+    left: 50%;
+    transform: translateX(-50%);
 }
 
 .hourly-bar-item .hourly-label {

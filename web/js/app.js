@@ -95,15 +95,20 @@ class CAMAIDashboard {
             this.loadNotifications();
         } else if (pageName === 'stats') {
             this.loadStatsPage();
+            this.startStatsPagePolling();
         } else if (pageName === 'system') {
             this.loadSystemStats();
             this.startSystemStatsPolling();
         }
 
-        // Stop system stats polling when leaving that page
+        // Stop polling when leaving pages
         if (pageName !== 'system' && this.systemStatsInterval) {
             clearInterval(this.systemStatsInterval);
             this.systemStatsInterval = null;
+        }
+        if (pageName !== 'stats' && this.statsPageInterval) {
+            clearInterval(this.statsPageInterval);
+            this.statsPageInterval = null;
         }
     }
 
@@ -302,13 +307,16 @@ class CAMAIDashboard {
     }
 
     updateStats(stats) {
-        document.getElementById('stat-fps').textContent = stats.fps || '--';
-        document.getElementById('stat-inference').textContent = stats.inference_ms || '--';
-        document.getElementById('stat-frames').textContent = this.formatNumber(stats.frame_count) || '--';
-        document.getElementById('stat-tracked').textContent = stats.tracked_objects || '--';
-        document.getElementById('stat-uptime').textContent = this.formatUptime(stats.uptime) || '--';
+        // Stats come from /api/stats which nests system stats under 'system'
+        const sysStats = stats.system || stats;
 
-        document.getElementById('fps-badge').textContent = `${stats.fps || '--'} FPS`;
+        document.getElementById('stat-fps').textContent = sysStats.fps ?? '--';
+        document.getElementById('stat-inference').textContent = sysStats.inference_ms ?? '--';
+        document.getElementById('stat-frames').textContent = this.formatNumber(sysStats.frame_count) || '--';
+        document.getElementById('stat-tracked').textContent = sysStats.tracked_objects ?? '--';
+        document.getElementById('stat-uptime').textContent = sysStats.uptime_formatted || this.formatUptime(sysStats.uptime_seconds) || '--';
+
+        document.getElementById('fps-badge').textContent = `${sysStats.fps ?? '--'} FPS`;
     }
 
     formatNumber(num) {
@@ -1096,6 +1104,14 @@ class CAMAIDashboard {
     }
 
     // Stats Page
+    startStatsPagePolling() {
+        if (this.statsPageInterval) {
+            clearInterval(this.statsPageInterval);
+        }
+        // Refresh stats page every 5 seconds
+        this.statsPageInterval = setInterval(() => this.loadStatsPage(), 5000);
+    }
+
     async loadStatsPage() {
         try {
             const response = await fetch('/api/stats');
@@ -1147,22 +1163,20 @@ class CAMAIDashboard {
 
         // Find max for scaling
         const maxCount = Math.max(...hourlyData.map(h => h.count), 1);
+        const maxHeight = 100; // max bar height in pixels
 
         // Only show hours with activity or current hour
         const currentHour = new Date().getHours();
-        const relevantHours = hourlyData.filter(h => h.count > 0 || h.hour === currentHour);
-
-        if (relevantHours.length === 0) {
-            container.innerHTML = '<p style="color: var(--text-secondary); padding: 1rem;">No activity recorded today</p>';
-            return;
-        }
 
         container.innerHTML = hourlyData.map(h => {
-            const height = Math.max(5, (h.count / maxCount) * 100);
+            // Calculate height in pixels (minimum 4px if there are events, 2px otherwise)
+            const height = h.count > 0
+                ? Math.max(8, Math.round((h.count / maxCount) * maxHeight))
+                : 2;
             const isCurrentHour = h.hour === currentHour;
             return `
                 <div class="hourly-bar-item ${isCurrentHour ? 'current' : ''}">
-                    <div class="hourly-bar" style="height: ${height}%" title="${h.count} events">
+                    <div class="hourly-bar" style="height: ${height}px" title="${h.count} events">
                         ${h.count > 0 ? `<span class="bar-count">${h.count}</span>` : ''}
                     </div>
                     <span class="hourly-label">${h.hour}</span>
@@ -1197,8 +1211,10 @@ class CAMAIDashboard {
             document.getElementById('cpu-badge').textContent = `${cpuUsage}%`;
             document.getElementById('cpu-bar').style.width = `${cpuUsage}%`;
             document.getElementById('cpu-cores').textContent = data.cpu.cores || '--';
-            if (data.cpu.load_avg) {
+            if (data.cpu.load_avg && data.cpu.load_avg.some(l => l > 0)) {
                 document.getElementById('cpu-load').textContent = data.cpu.load_avg.map(l => l.toFixed(2)).join(', ');
+            } else {
+                document.getElementById('cpu-load').textContent = '--';
             }
         }
 
@@ -1264,15 +1280,30 @@ class CAMAIDashboard {
         badge.textContent = `${maxTemp}°C`;
         badge.classList.toggle('hot', maxTemp > 70);
 
-        // Filter out special keys and render temps
+        // Only show main temperature sensors (CPU, GPU, and overall)
+        const importantSensors = ['cpu', 'gpu', 'CPU', 'GPU', 'CPU-therm', 'GPU-therm', 'tj', 'Tboard'];
         const tempItems = Object.entries(temps)
-            .filter(([key]) => !key.startsWith('_'))
+            .filter(([key]) => {
+                // Skip internal keys
+                if (key.startsWith('_')) return false;
+                // Only include important sensors
+                return importantSensors.some(s => key.toLowerCase().includes(s.toLowerCase()));
+            })
+            // Deduplicate by normalizing names (keep first of each type)
+            .reduce((acc, [name, value]) => {
+                const normalized = name.toLowerCase().includes('cpu') ? 'CPU' :
+                                   name.toLowerCase().includes('gpu') ? 'GPU' : name;
+                if (!acc.find(([n]) => n === normalized)) {
+                    acc.push([normalized, value]);
+                }
+                return acc;
+            }, [])
             .map(([name, value]) => {
                 const tempClass = value > 70 ? 'hot' : value > 50 ? 'warm' : '';
                 return `
                     <div class="temp-item">
                         <span class="temp-value ${tempClass}">${value}°C</span>
-                        <span class="temp-label">${this.formatTempName(name)}</span>
+                        <span class="temp-label">${name}</span>
                     </div>
                 `;
             });
@@ -1284,32 +1315,45 @@ class CAMAIDashboard {
         }
     }
 
-    formatTempName(name) {
-        // Clean up temperature sensor names
-        return name
-            .replace(/-/g, ' ')
-            .replace(/_/g, ' ')
-            .replace(/thermal/gi, '')
-            .replace(/temp/gi, '')
-            .trim() || name;
-    }
-
     updateNetworkDisplay(network) {
         const container = document.getElementById('network-grid');
         if (!container) return;
 
-        const items = Object.entries(network).map(([iface, stats]) => `
-            <div class="network-item">
-                <span class="network-iface">${iface}</span>
-                <div class="network-stats">
-                    <span class="network-rx">↓ ${this.formatBytes(stats.rx_bytes)}</span>
-                    <span class="network-tx">↑ ${this.formatBytes(stats.tx_bytes)}</span>
-                </div>
-            </div>
-        `);
+        // Only show real network interfaces (ethernet and wifi)
+        // Skip virtual interfaces: lo, docker, veth, br-, virbr, can, usb, l4t
+        const virtualPrefixes = ['lo', 'docker', 'veth', 'br-', 'virbr', 'can', 'usb', 'l4t', 'dummy'];
+
+        const items = Object.entries(network)
+            .filter(([iface]) => {
+                const lower = iface.toLowerCase();
+                return !virtualPrefixes.some(prefix => lower.startsWith(prefix));
+            })
+            .filter(([, stats]) => {
+                // Also filter out interfaces with zero traffic
+                return stats.rx_bytes > 0 || stats.tx_bytes > 0;
+            })
+            .map(([iface, stats]) => {
+                // Friendly name for interface
+                let friendlyName = iface;
+                if (iface.startsWith('wl') || iface.includes('wlan')) {
+                    friendlyName = `WiFi (${iface})`;
+                } else if (iface.startsWith('en') || iface.startsWith('eth')) {
+                    friendlyName = `Ethernet (${iface})`;
+                }
+
+                return `
+                    <div class="network-item">
+                        <span class="network-iface">${friendlyName}</span>
+                        <div class="network-stats">
+                            <span class="network-rx">↓ ${this.formatBytes(stats.rx_bytes)}</span>
+                            <span class="network-tx">↑ ${this.formatBytes(stats.tx_bytes)}</span>
+                        </div>
+                    </div>
+                `;
+            });
 
         if (items.length === 0) {
-            container.innerHTML = '<div class="network-item"><span class="network-label">No interfaces found</span></div>';
+            container.innerHTML = '<div class="network-item"><span class="network-label">No active interfaces</span></div>';
         } else {
             container.innerHTML = items.join('');
         }
