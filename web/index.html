@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CAMAI - AI Camera Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <span class="logo">CAMAI</span>
+            <span class="tagline">Jetson AI Camera</span>
+        </div>
+        <div class="nav-links">
+            <a href="#" class="nav-link active" data-page="dashboard">Dashboard</a>
+            <a href="#" class="nav-link" data-page="events">Events</a>
+            <a href="#" class="nav-link" data-page="settings">Settings</a>
+        </div>
+        <div class="nav-status">
+            <span class="status-dot online"></span>
+            <span id="status-text">Connected</span>
+        </div>
+    </nav>
+
+    <main class="container">
+        <!-- Dashboard Page -->
+        <div id="page-dashboard" class="page active">
+            <div class="dashboard-grid">
+                <!-- Main Stream -->
+                <div class="card stream-card main-stream">
+                    <div class="card-header">
+                        <h3>Live View</h3>
+                        <span class="badge" id="fps-badge">-- FPS</span>
+                    </div>
+                    <div class="stream-container">
+                        <img src="/stream" alt="Live Stream" id="main-stream">
+                    </div>
+                </div>
+
+                <!-- Face Zoom Stream -->
+                <div class="card stream-card face-stream">
+                    <div class="card-header">
+                        <h3>Face Zoom</h3>
+                        <span class="badge badge-secondary">Auto</span>
+                    </div>
+                    <div class="stream-container">
+                        <img src="/face" alt="Face Stream" id="face-stream">
+                    </div>
+                </div>
+
+                <!-- Stats Panel -->
+                <div class="card stats-card">
+                    <div class="card-header">
+                        <h3>System Stats</h3>
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-value" id="stat-fps">--</span>
+                            <span class="stat-label">FPS</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="stat-inference">--</span>
+                            <span class="stat-label">Inference (ms)</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="stat-frames">--</span>
+                            <span class="stat-label">Frames</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="stat-tracked">--</span>
+                            <span class="stat-label">Tracked</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="stat-uptime">--</span>
+                            <span class="stat-label">Uptime (s)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Controls -->
+                <div class="card controls-card">
+                    <div class="card-header">
+                        <h3>Quick Controls</h3>
+                    </div>
+                    <div class="controls-grid">
+                        <div class="control-item">
+                            <label class="toggle-label">
+                                <span>PTZ Tracking</span>
+                                <input type="checkbox" id="toggle-ptz">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="control-item">
+                            <label class="toggle-label">
+                                <span>Pose Estimation</span>
+                                <input type="checkbox" id="toggle-pose">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="control-item">
+                            <label>Confidence</label>
+                            <input type="range" id="slider-confidence" min="0.1" max="0.9" step="0.05" value="0.5">
+                            <span id="confidence-value">0.5</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Events -->
+                <div class="card events-card">
+                    <div class="card-header">
+                        <h3>Recent Events</h3>
+                        <a href="#" class="view-all" data-page="events">View All</a>
+                    </div>
+                    <div class="events-list" id="recent-events">
+                        <div class="event-item placeholder">No events yet</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Events Page -->
+        <div id="page-events" class="page">
+            <div class="page-header">
+                <h2>Event History</h2>
+                <div class="filters">
+                    <select id="event-filter">
+                        <option value="all">All Events</option>
+                        <option value="person">Person</option>
+                        <option value="vehicle">Vehicle</option>
+                        <option value="package">Package</option>
+                    </select>
+                </div>
+            </div>
+            <div class="events-grid" id="events-grid">
+                <!-- Events loaded dynamically -->
+            </div>
+            <div class="snapshots-section">
+                <h3>Saved Snapshots</h3>
+                <div class="snapshots-grid" id="snapshots-grid">
+                    <!-- Snapshots loaded dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Page -->
+        <div id="page-settings" class="page">
+            <div class="page-header">
+                <h2>Settings</h2>
+            </div>
+            <div class="settings-grid">
+                <!-- Detection Settings -->
+                <div class="card settings-section">
+                    <div class="card-header">
+                        <h3>Detection</h3>
+                    </div>
+                    <div class="settings-form">
+                        <div class="form-group">
+                            <label for="setting-confidence">Confidence Threshold</label>
+                            <input type="range" id="setting-confidence" min="0.1" max="0.9" step="0.05" value="0.5">
+                            <span class="range-value" id="setting-confidence-value">0.5</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-iou">IOU Threshold</label>
+                            <input type="range" id="setting-iou" min="0.1" max="0.9" step="0.05" value="0.45">
+                            <span class="range-value" id="setting-iou-value">0.45</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PTZ Settings -->
+                <div class="card settings-section">
+                    <div class="card-header">
+                        <h3>PTZ Tracking</h3>
+                    </div>
+                    <div class="settings-form">
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <span>Enable PTZ Tracking</span>
+                                <input type="checkbox" id="setting-ptz-enabled">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-ptz-speed">Track Speed</label>
+                            <input type="range" id="setting-ptz-speed" min="0.1" max="1.0" step="0.1" value="0.5">
+                            <span class="range-value" id="setting-ptz-speed-value">0.5</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-ptz-deadzone">Deadzone</label>
+                            <input type="range" id="setting-ptz-deadzone" min="0.05" max="0.3" step="0.05" value="0.15">
+                            <span class="range-value" id="setting-ptz-deadzone-value">0.15</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pose Settings -->
+                <div class="card settings-section">
+                    <div class="card-header">
+                        <h3>Pose Estimation</h3>
+                    </div>
+                    <div class="settings-form">
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <span>Enable Pose Estimation</span>
+                                <input type="checkbox" id="setting-pose-enabled">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <p class="form-hint">Shows body skeleton overlay on detected people. Requires restart to apply.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- About -->
+                <div class="card settings-section">
+                    <div class="card-header">
+                        <h3>About</h3>
+                    </div>
+                    <div class="about-info">
+                        <p><strong>CAMAI</strong> - Jetson AI Camera System</p>
+                        <p>YOLO11 + TensorRT on Jetson Orin Nano</p>
+                        <p class="version">Version 1.0.0</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

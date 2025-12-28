@@ -118,15 +118,12 @@ class StreamServer:
             return self._face_frame
 
     def start(self):
-        self._server = ThreadedServer(("0.0.0.0", self.port), StreamHandler)
-        self._server.stream = self
-        threading.Thread(target=self._server.serve_forever, daemon=True).start()
-        logger.info(f"Stream: http://0.0.0.0:{self.port}/stream")
-        logger.info(f"Face stream: http://0.0.0.0:{self.port}/face")
+        # No longer starts own server - FastAPI handles HTTP
+        pass
 
     def stop(self):
-        if self._server:
-            self._server.shutdown()
+        # No longer manages server
+        pass
 
 
 def annotate_frame(

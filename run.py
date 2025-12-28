@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 CAMAI - Jetson AI Camera System
-Main entry point.
+Main entry point with FastAPI web dashboard.
 
 Usage:
     python run.py              # Run with defaults
@@ -11,6 +11,8 @@ import signal
 import sys
 import time
 import logging
+import threading
+import asyncio
 from pathlib import Path
 
 # Add src to path
@@ -25,6 +27,7 @@ from notifications import NotificationManager
 from stream import StreamServer, annotate_frame, extract_face_crop
 from ptz import PTZController, PTZConfig
 from pose import PoseEstimator
+import api
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,6 +35,12 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("camai")
+
+
+def run_fastapi(port: int):
+    """Run FastAPI server in a thread."""
+    import uvicorn
+    uvicorn.run(api.app, host="0.0.0.0", port=port, log_level="warning")
 
 
 def main():
@@ -62,13 +71,13 @@ def main():
     def on_event(event):
         frame = capture.read()
         notifier.notify(event, frame)
+        # Add to API events
+        api.add_event(event.to_dict())
 
     events.on_event(on_event)
 
-    # Stream server
-    stream = None
-    if cfg.enable_stream:
-        stream = StreamServer(cfg.stream_port)
+    # Stream server (for frame storage, used by API)
+    stream = StreamServer(cfg.stream_port)
 
     # PTZ tracking
     ptz = None
@@ -106,11 +115,26 @@ def main():
             log.warning("Pose estimation disabled - model failed to load")
             pose = None
 
+    # Set API state
+    api.set_state("config", cfg)
+    api.set_state("detector", detector)
+    api.set_state("capture", capture)
+    api.set_state("events", events)
+    api.set_state("ptz", ptz)
+    api.set_state("pose", pose)
+    api.set_state("stream_server", stream)
+
     # Start components
     capture.start()
     notifier.start()
-    if stream:
-        stream.start()
+
+    # Start FastAPI in a thread
+    api_thread = threading.Thread(target=run_fastapi, args=(cfg.stream_port,), daemon=True)
+    api_thread.start()
+
+    log.info(f"Dashboard: http://0.0.0.0:{cfg.stream_port}")
+    log.info(f"Stream: http://0.0.0.0:{cfg.stream_port}/stream")
+    log.info(f"Face stream: http://0.0.0.0:{cfg.stream_port}/face")
 
     # Signal handling
     running = True
@@ -123,12 +147,12 @@ def main():
     signal.signal(signal.SIGTERM, stop)
 
     log.info("Running. Press Ctrl+C to stop.")
-    log.info(f"Stream: http://0.0.0.0:{cfg.stream_port}/stream")
 
     # Main loop
     frame_count = 0
     start_time = time.time()
     last_log = time.time()
+    last_stats_update = time.time()
 
     try:
         while running:
@@ -146,39 +170,39 @@ def main():
             _ = events.update(detections, frame.shape[1], frame.shape[0])
 
             # PTZ tracking (follows people only)
-            if ptz:
+            if ptz and cfg.enable_ptz:
                 ptz.track_person(detections, frame.shape[1], frame.shape[0])
 
             # Pose estimation (optional)
             keypoints = None
-            if pose:
+            if pose and cfg.enable_pose:
                 keypoints = pose.estimate(frame)
 
-            # Update stream
-            if stream:
-                elapsed = time.time() - start_time
-                fps = frame_count / elapsed if elapsed > 0 else 0
-                total_inf = detector.inference_ms + (pose.inference_ms if pose else 0)
-                annotated = annotate_frame(frame, detections, fps, total_inf, keypoints)
-                stream.update(annotated)
+            # Update stream frames
+            elapsed = time.time() - start_time
+            fps = frame_count / elapsed if elapsed > 0 else 0
+            total_inf = detector.inference_ms + (pose.inference_ms if pose else 0)
+            annotated = annotate_frame(frame, detections, fps, total_inf, keypoints)
+            stream.update(annotated)
 
-                # Update face zoom stream
-                face_crop = extract_face_crop(frame, detections, keypoints)
-                stream.update_face(face_crop)
+            # Update face zoom stream
+            face_crop = extract_face_crop(frame, detections, keypoints)
+            stream.update_face(face_crop)
+
+            # Update API stats periodically
+            if time.time() - last_stats_update >= 0.5:
+                api.update_stats(fps, total_inf, frame_count, events.tracked_count, elapsed)
+                last_stats_update = time.time()
 
             # Log stats every 30s
             if time.time() - last_log >= 30:
-                elapsed = time.time() - start_time
-                fps = frame_count / elapsed
-                log.info(f"FPS: {fps:.1f} | Inference: {detector.inference_ms:.1f}ms | "
+                log.info(f"FPS: {fps:.1f} | Inference: {total_inf:.1f}ms | "
                         f"Frames: {frame_count} | Tracked: {events.tracked_count}")
                 last_log = time.time()
 
     finally:
         capture.stop()
         notifier.stop()
-        if stream:
-            stream.stop()
         if ptz:
             ptz.disconnect()
 
