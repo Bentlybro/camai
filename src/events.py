@@ -104,13 +104,15 @@ class EventDetector:
         self._detection_location_cooldown = 30.0  # Seconds before same spot can trigger again
         self._location_iou_threshold = 0.5  # How much overlap = "same spot"
 
-        # Time-based cooldown for vehicle_detected (cars driving by)
-        self._vehicle_detected_cooldown = 10.0  # Short cooldown for moving vehicles
+        # Time-based cooldowns for moving objects
+        self._vehicle_detected_cooldown = 10.0  # Seconds between vehicle_detected
         self._last_vehicle_detected = 0
+        self._person_detected_cooldown = 30.0  # Seconds between person_detected
+        self._last_person_detected = 0
 
         # Global rate limiting
         self._notification_times: List[float] = []
-        self._max_notifications_per_minute = 10
+        self._max_notifications_per_minute = 5  # Max 5 notifications per minute total
 
         # Startup flag - register existing vehicles as parked after a delay
         self._startup_time = time.time()
@@ -423,11 +425,14 @@ class EventDetector:
                 )
 
                 # Fire events for new detections
-                if det.class_name == "person" and self._is_new_detection_location(det):
-                    event = Event(EventType.PERSON_DETECTED, now, "person", det.confidence, det.bbox,
-                                  color=det.color, description=det.description)
-                    events.append(event)
-                    self._fire(event)
+                if det.class_name == "person":
+                    # Time-based cooldown - one person_detected per 30 seconds max
+                    if now - self._last_person_detected >= self._person_detected_cooldown:
+                        self._last_person_detected = now
+                        event = Event(EventType.PERSON_DETECTED, now, "person", det.confidence, det.bbox,
+                                      color=det.color, description=det.description)
+                        events.append(event)
+                        self._fire(event)
                 elif det.class_name in ("car", "truck"):
                     # Check for repeated detections at same position (flickering at night)
                     pos_id = self._get_position_id(det.bbox)
