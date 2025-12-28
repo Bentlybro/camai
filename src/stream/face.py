@@ -83,8 +83,8 @@ class FaceTracker:
         return updated_faces
 
 
-# Global face tracker instance
-_face_tracker = FaceTracker(smoothing=0.6, persistence_frames=10)
+# Global face tracker instance - minimal smoothing for responsive tracking
+_face_tracker = FaceTracker(smoothing=0.15, persistence_frames=3)
 
 
 def extract_face_crop(
@@ -128,31 +128,44 @@ def extract_face_crop(
         faces_data = []
         h, w = frame.shape[:2]
 
-        for i, person in enumerate(people):
+        for person in people:
             x1, y1, x2, y2 = person.bbox
             person_width = x2 - x1
             person_height = y2 - y1
 
             face_cx, face_cy = None, None
 
-            # Try to use nose keypoint from pose estimation (index 0)
-            # This is fast and reliable at distance
-            if keypoints_list and i < len(keypoints_list):
-                kpts = keypoints_list[i]
-                if len(kpts) >= 1:
-                    nose = kpts[0]  # nose is keypoint 0
-                    # Check if nose is detected with confidence and within bbox
-                    if nose[2] > 0.2 and x1 <= nose[0] <= x2 and y1 <= nose[1] <= y2:
-                        face_cx = nose[0]
-                        face_cy = nose[1]
+            # Find matching keypoints by checking if nose is inside this person's bbox
+            # (keypoints_list is from separate pose detection, not aligned with detections)
+            if keypoints_list:
+                for kpts in keypoints_list:
+                    if len(kpts) >= 3:
+                        nose = kpts[0]      # nose
+                        left_eye = kpts[1]  # left eye
+                        right_eye = kpts[2] # right eye
+
+                        nx, ny, nconf = nose[0], nose[1], nose[2]
+
+                        # Check if nose is inside this person's bbox
+                        if nconf > 0.1 and x1 <= nx <= x2 and y1 <= ny <= y2:
+                            # Use average of visible head keypoints for better centering
+                            points = [(nx, ny)]
+                            if left_eye[2] > 0.1:
+                                points.append((left_eye[0], left_eye[1]))
+                            if right_eye[2] > 0.1:
+                                points.append((right_eye[0], right_eye[1]))
+
+                            face_cx = sum(p[0] for p in points) / len(points)
+                            face_cy = sum(p[1] for p in points) / len(points)
+                            break
 
             # Fallback to bbox-based estimation (top center of person)
             if face_cx is None:
                 face_cx = (x1 + x2) / 2
-                face_cy = y1 + person_height * 0.12
+                face_cy = y1 + person_height * 0.15
 
-            # Head size estimated from person bbox (works at any distance)
-            face_size = max(person_width * 0.7, person_height * 0.22)
+            # Head size estimated from person bbox
+            face_size = max(person_width * 0.6, person_height * 0.2)
 
             faces_data.append({
                 'cx': face_cx,
