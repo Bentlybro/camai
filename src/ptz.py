@@ -34,11 +34,16 @@ class PTZController:
         self._media_service = None
         self._profile_token = None
         self._connected = False
-        self._last_person_time = 0
+        self._last_person_time = time.time()  # Initialize to now, not 0
         self._last_command_time = 0
         self._command_interval = 0.15  # Only send commands every 150ms
         self._is_home = True
         self._is_moving = False
+        self._move_start_time = 0  # Track when continuous movement started
+        self._max_move_duration = 3.0  # Max seconds to move without re-detection
+        self._last_direction = (0, 0)  # Track last pan/tilt direction
+        self._consecutive_detections = 0  # Count consecutive frames with person
+        self._detection_threshold = 3  # Frames required before tracking starts
 
     def connect(self) -> bool:
         """Connect to camera via ONVIF."""
@@ -133,11 +138,24 @@ class PTZController:
         if not self._connected:
             return
 
-        # Throttle commands
         now = time.time()
+
+        # Safety check: stop if moving too long in same direction
+        if self._is_moving and now - self._move_start_time > self._max_move_duration:
+            logger.warning("PTZ safety stop: max move duration exceeded")
+            self.stop()
+            return
+
+        # Throttle commands
         if now - self._last_command_time < self._command_interval:
             return
         self._last_command_time = now
+
+        # Track when movement starts or direction changes significantly
+        new_direction = (pan, tilt)
+        if not self._is_moving or self._direction_changed(new_direction):
+            self._move_start_time = now
+            self._last_direction = new_direction
 
         try:
             request = self._ptz_service.create_type('ContinuousMove')
@@ -152,6 +170,15 @@ class PTZController:
         except Exception as e:
             logger.error(f"PTZ move error: {e}")
 
+    def _direction_changed(self, new_direction: tuple) -> bool:
+        """Check if movement direction changed significantly."""
+        old_pan, old_tilt = self._last_direction
+        new_pan, new_tilt = new_direction
+        # Direction changed if sign flipped or magnitude changed significantly
+        pan_changed = (old_pan * new_pan < 0) or abs(old_pan - new_pan) > 0.5
+        tilt_changed = (old_tilt * new_tilt < 0) or abs(old_tilt - new_tilt) > 0.5
+        return pan_changed or tilt_changed
+
     def stop(self):
         """Stop all PTZ movement."""
         if not self._connected or not self._is_moving:
@@ -164,6 +191,8 @@ class PTZController:
             request.Zoom = True
             self._ptz_service.Stop(request)
             self._is_moving = False
+            self._last_direction = (0, 0)
+            self._move_start_time = 0
         except Exception as e:
             logger.error(f"PTZ stop error: {e}")
 
@@ -272,18 +301,32 @@ class PTZController:
         people = [d for d in detections if d.class_name == "person"]
 
         if not people:
-            # No person detected
+            # No person detected - IMMEDIATELY stop any movement
+            if self._is_moving:
+                self.stop()
+
+            # Reset consecutive detection counter
+            self._consecutive_detections = 0
+
+            # Check if we should return home after delay
             time_since_person = time.time() - self._last_person_time
 
             if self.config.return_home and time_since_person > self.config.home_delay:
                 # Only go home once, not every frame
                 if not self._is_home:
-                    self.stop()
                     self.go_home()
                     self._is_home = True
             return
 
-        # Person detected - reset home state and update time
+        # Person detected - increment consecutive detection counter
+        self._consecutive_detections += 1
+
+        # Don't track until we've seen a person for enough frames (filter false positives)
+        if self._consecutive_detections < self._detection_threshold:
+            logger.debug(f"Person detected, confirming... ({self._consecutive_detections}/{self._detection_threshold})")
+            return
+
+        # Confirmed person - reset home state and update time
         self._last_person_time = time.time()
         self._is_home = False
 

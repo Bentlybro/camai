@@ -102,6 +102,7 @@ async def update_ptz(settings: PTZSettings):
         cfg.ptz_deadzone = deadzone
 
     if ptz and ptz.config:
+        ptz.config.enabled = settings.enabled  # Update PTZ controller's enabled state
         ptz.config.track_speed = track_speed
         ptz.config.deadzone = deadzone
 

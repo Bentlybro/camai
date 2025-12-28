@@ -28,10 +28,13 @@
         <div id="page-dashboard" class="page active">
             <div class="dashboard-grid">
                 <!-- Main Stream -->
-                <div class="card stream-card main-stream">
+                <div class="card stream-card main-stream" id="stream-card">
                     <div class="card-header">
                         <h3>Live View</h3>
-                        <span class="badge" id="fps-badge">-- FPS</span>
+                        <div class="header-actions">
+                            <span class="badge" id="fps-badge">-- FPS</span>
+                            <button class="btn-icon" id="btn-fullscreen" title="Fullscreen">&#x26F6;</button>
+                        </div>
                     </div>
                     <div class="stream-container">
                         <img src="/stream" alt="Live Stream" id="main-stream">

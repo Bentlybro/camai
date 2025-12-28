@@ -18,11 +18,49 @@ class CAMAIDashboard {
         this.setupPTZControls();
         this.setupModal();
         this.setupEventFilter();
+        this.setupFullscreen();
         this.loadSettings();
         this.loadEvents();
         this.loadSnapshots();
         this.startStatsPolling();
         this.checkPTZStatus();
+    }
+
+    // Fullscreen
+    setupFullscreen() {
+        const btn = document.getElementById('btn-fullscreen');
+        const streamCard = document.getElementById('stream-card');
+
+        if (btn && streamCard) {
+            btn.addEventListener('click', () => this.toggleFullscreen(streamCard));
+
+            // Update button icon when fullscreen changes
+            document.addEventListener('fullscreenchange', () => {
+                btn.innerHTML = document.fullscreenElement ? '&#x2716;' : '&#x26F6;';
+            });
+
+            // Also allow double-click on stream to toggle fullscreen
+            streamCard.querySelector('.stream-container')?.addEventListener('dblclick', () => {
+                this.toggleFullscreen(streamCard);
+            });
+
+            // ESC key exits fullscreen (browser handles this, but we update icon)
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && document.fullscreenElement) {
+                    // Browser will exit fullscreen, icon updates via fullscreenchange event
+                }
+            });
+        }
+    }
+
+    toggleFullscreen(element) {
+        if (!document.fullscreenElement) {
+            element.requestFullscreen().catch(err => {
+                console.error('Fullscreen error:', err);
+            });
+        } else {
+            document.exitFullscreen();
+        }
     }
 
     // Navigation

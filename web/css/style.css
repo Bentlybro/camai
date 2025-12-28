@@ -149,6 +149,75 @@ body {
     font-weight: 600;
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.btn-icon {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    transition: all 0.2s;
+}
+
+.btn-icon:hover {
+    background: var(--accent);
+    color: var(--bg-primary);
+    border-color: var(--accent);
+}
+
+/* Fullscreen styles */
+.stream-card:fullscreen,
+.stream-card:-webkit-full-screen {
+    background: #000;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.stream-card:fullscreen .card-header,
+.stream-card:-webkit-full-screen .card-header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.stream-card:fullscreen:hover .card-header,
+.stream-card:-webkit-full-screen:hover .card-header {
+    opacity: 1;
+}
+
+.stream-card:fullscreen .stream-container,
+.stream-card:-webkit-full-screen .stream-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+}
+
+.stream-card:fullscreen .stream-container img,
+.stream-card:-webkit-full-screen .stream-container img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
 /* Dashboard Grid */
 .dashboard-grid {
     display: grid;
