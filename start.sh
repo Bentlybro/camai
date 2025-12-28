@@ -27,4 +27,12 @@ sudo docker run -it --rm --ipc=host --runtime=nvidia \
     --net=host --privileged \
     -v "$(pwd)":/app -w /app \
     $IMAGE \
-    bash -c "pip install -q python-dotenv onvif-zeep && python3 run.py"
+    bash -c "pip install -q python-dotenv onvif-zeep && \
+             WSDL_DIR=\$(python3 -c 'import onvif; import os; print(os.path.dirname(onvif.__file__))') && \
+             if [ ! -f \"\$WSDL_DIR/wsdl/devicemgmt.wsdl\" ]; then \
+               echo 'Downloading ONVIF WSDL files...' && \
+               git clone --depth 1 https://github.com/quatanium/python-onvif.git /tmp/onvif-wsdl && \
+               cp -r /tmp/onvif-wsdl/onvif/wsdl \"\$WSDL_DIR/\" && \
+               rm -rf /tmp/onvif-wsdl; \
+             fi && \
+             python3 run.py"
