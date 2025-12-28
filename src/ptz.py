@@ -1,5 +1,6 @@
 """PTZ camera control via ONVIF for person tracking."""
 import logging
+import os
 import time
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -43,6 +44,11 @@ class PTZController:
 
         try:
             from onvif import ONVIFCamera
+            import onvif
+
+            # Find WSDL directory
+            onvif_path = os.path.dirname(onvif.__file__)
+            wsdl_dir = os.path.join(onvif_path, 'wsdl')
 
             logger.info(f"Connecting to PTZ camera at {self.config.host}:{self.config.port}")
 
@@ -50,7 +56,8 @@ class PTZController:
                 self.config.host,
                 self.config.port,
                 self.config.username,
-                self.config.password
+                self.config.password,
+                wsdl_dir=wsdl_dir
             )
 
             # Get services
