@@ -225,90 +225,115 @@ def main():
 
     log.info("Running. Press Ctrl+C to stop.")
 
-    # Main loop
+    # Main loop with optimized pipeline
     frame_count = 0
     start_time = time.time()
     last_log = time.time()
     last_stats_update = time.time()
 
+    # Thread pool for parallel processing
+    from concurrent.futures import ThreadPoolExecutor
+    process_pool = ThreadPoolExecutor(max_workers=3)
+
+    # Cache for FPS calculation (avoid division every frame)
+    cached_fps = 0
+    cached_total_inf = 0
+    fps_update_interval = 10  # Update FPS every N frames
+
     try:
         while running:
             frame = capture.read()
             if frame is None:
-                time.sleep(0.01)
+                time.sleep(0.001)  # Shorter sleep
                 continue
 
             frame_count += 1
+            frame_h, frame_w = frame.shape[:2]
 
-            # Detect
+            # === DETECTION (GPU) ===
             all_detections = detector.detect(frame)
 
-            # Filter detections based on toggles
-            detections = []
-            for d in all_detections:
-                if d.class_name == "person" and cfg.detect_person:
-                    detections.append(d)
-                elif d.class_name in ("car", "truck") and cfg.detect_vehicle:
-                    detections.append(d)
-                elif d.class_name == "package" and cfg.detect_package:
-                    detections.append(d)
+            # Filter detections (fast, in-place)
+            detections = [d for d in all_detections if
+                         (d.class_name == "person" and cfg.detect_person) or
+                         (d.class_name in ("car", "truck") and cfg.detect_vehicle) or
+                         (d.class_name == "package" and cfg.detect_package)]
 
-            # Classify detections for better identification (if enabled)
-            if classifier and cfg.enable_classifier and detections:
-                for d in detections:
-                    result = classifier.classify(frame, d.bbox, d.class_name)
-                    if result:
-                        d.color = result.color
-                        d.description = result.description
-                        d.signature = f"{result.color}_{d.class_name}" if result.color else d.class_name
-
-            # Pose estimation BEFORE events (so keypoints available for notifications)
+            # === PARALLEL PROCESSING ===
+            # Run classifier and pose estimation in parallel
             keypoints = None
             people_detected = any(d.class_name == "person" for d in detections)
+
+            pose_future = None
+            classify_future = None
+
+            # Submit pose estimation (if needed)
             if pose and cfg.enable_pose and people_detected:
-                keypoints = pose.estimate(frame)
-                # Store keypoints in API state for notification access
-                api.set_state("latest_keypoints", keypoints)
-            else:
-                api.set_state("latest_keypoints", None)
+                pose_future = process_pool.submit(pose.estimate, frame)
 
-            # Update events
-            _ = events.update(detections, frame.shape[1], frame.shape[0])
-
-            # PTZ tracking (follows people only)
-            if ptz and cfg.enable_ptz:
-                ptz.track_person(detections, frame.shape[1], frame.shape[0])
-
-            # Update stream frames
-            elapsed = time.time() - start_time
-            fps = frame_count / elapsed if elapsed > 0 else 0
-            # Only count inference time for models that actually ran
-            total_inf = detector.inference_ms
-            if pose and cfg.enable_pose and people_detected:
-                total_inf += pose.inference_ms
+            # Submit classification (if needed) - classify all detections in one call
             if classifier and cfg.enable_classifier and detections:
-                total_inf += classifier.inference_ms
+                def classify_all(frame, dets):
+                    for d in dets:
+                        result = classifier.classify(frame, d.bbox, d.class_name)
+                        if result:
+                            d.color = result.color
+                            d.description = result.description
+                            d.signature = f"{result.color}_{d.class_name}" if result.color else d.class_name
+                classify_future = process_pool.submit(classify_all, frame, detections)
 
-            # Main stream gets annotations (if enabled)
+            # Wait for results
+            if pose_future:
+                keypoints = pose_future.result()
+            if classify_future:
+                classify_future.result()  # Updates detections in place
+
+            # Store keypoints for notifications
+            api.set_state("latest_keypoints", keypoints)
+
+            # === EVENT PROCESSING (fast, CPU) ===
+            events.update(detections, frame_w, frame_h)
+
+            # PTZ tracking
+            if ptz and cfg.enable_ptz:
+                ptz.track_person(detections, frame_w, frame_h)
+
+            # === STREAM UPDATE (async, non-blocking) ===
+            # Update FPS periodically (not every frame)
+            if frame_count % fps_update_interval == 0:
+                elapsed = time.time() - start_time
+                cached_fps = frame_count / elapsed if elapsed > 0 else 0
+                cached_total_inf = detector.inference_ms
+                if pose and cfg.enable_pose and people_detected:
+                    cached_total_inf += pose.inference_ms
+                if classifier and cfg.enable_classifier and detections:
+                    cached_total_inf += classifier.inference_ms
+
+            # Annotate and update stream (encoding is async now)
             if cfg.show_overlays:
-                annotated = annotate_frame(frame, detections, fps, total_inf, keypoints)
-                stream.update(annotated, clean_frame=frame)
+                clean = frame.copy()  # Save clean copy before annotation
+                annotate_frame(frame, detections, cached_fps, cached_total_inf, keypoints)
+                stream.update(frame, clean_frame=clean)
             else:
                 stream.update(frame, clean_frame=frame)
 
-            # Update API stats periodically
-            if time.time() - last_stats_update >= 0.5:
-                api.update_stats(fps, total_inf, frame_count, events.tracked_count, elapsed)
-                last_stats_update = time.time()
+            # === STATS UPDATE (throttled) ===
+            now = time.time()
+            if now - last_stats_update >= 0.5:
+                elapsed = now - start_time
+                api.update_stats(cached_fps, cached_total_inf, frame_count, events.tracked_count, elapsed)
+                last_stats_update = now
 
             # Log stats every 30s
-            if time.time() - last_log >= 30:
-                log.info(f"FPS: {fps:.1f} | Inference: {total_inf:.1f}ms | "
+            if now - last_log >= 30:
+                log.info(f"FPS: {cached_fps:.1f} | Inference: {cached_total_inf:.1f}ms | "
                         f"Frames: {frame_count} | Tracked: {events.tracked_count}")
-                last_log = time.time()
+                last_log = now
 
     finally:
+        process_pool.shutdown(wait=False)
         capture.stop()
+        stream.stop()
         notifier.stop()
         if ptz:
             ptz.disconnect()

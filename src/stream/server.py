@@ -1,10 +1,11 @@
 """MJPEG stream server for viewing detections."""
 import threading
+from queue import Queue, Empty
 import numpy as np
 
 
 class StreamServer:
-    """MJPEG stream server."""
+    """MJPEG stream server with async encoding."""
 
     def __init__(self, port: int = 8080, quality: int = 65):
         self.port = port
@@ -12,16 +13,41 @@ class StreamServer:
         self._frame = None
         self._clean_frame = None
         self._lock = threading.Lock()
+        # Async encoding
+        self._encode_queue = Queue(maxsize=2)
+        self._running = True
+        self._encoder_thread = threading.Thread(target=self._encoder_loop, daemon=True)
+        self._encoder_thread.start()
+
+    def _encoder_loop(self):
+        """Background thread for JPEG encoding."""
+        import cv2
+        while self._running:
+            try:
+                frame, clean_frame = self._encode_queue.get(timeout=0.1)
+                # Encode frames
+                _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
+                encoded = buf.tobytes()
+
+                clean_encoded = None
+                if clean_frame is not None:
+                    _, clean_buf = cv2.imencode('.jpg', clean_frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
+                    clean_encoded = clean_buf.tobytes()
+
+                with self._lock:
+                    self._frame = encoded
+                    if clean_encoded:
+                        self._clean_frame = clean_encoded
+            except Empty:
+                continue
 
     def update(self, frame: np.ndarray, clean_frame: np.ndarray = None):
-        """Update current frame and optionally clean frame."""
-        import cv2
-        _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
-        with self._lock:
-            self._frame = buf.tobytes()
-            if clean_frame is not None:
-                _, clean_buf = cv2.imencode('.jpg', clean_frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
-                self._clean_frame = clean_buf.tobytes()
+        """Queue frame for async encoding (non-blocking)."""
+        # Drop frame if queue is full (don't block main loop)
+        try:
+            self._encode_queue.put_nowait((frame.copy(), clean_frame.copy() if clean_frame is not None else None))
+        except:
+            pass  # Drop frame if behind
 
     def get_frame(self) -> bytes:
         with self._lock:
@@ -30,3 +56,6 @@ class StreamServer:
     def get_clean_frame(self) -> bytes:
         with self._lock:
             return self._clean_frame
+
+    def stop(self):
+        self._running = False

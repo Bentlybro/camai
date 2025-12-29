@@ -2,14 +2,13 @@
 import threading
 import time
 import logging
-from queue import Queue, Empty
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
 
 class RTSPCapture:
-    """RTSP capture with GStreamer hardware decode."""
+    """RTSP capture with GStreamer hardware decode - optimized for low latency."""
 
     def __init__(self, rtsp_url: str, width: int = 640, height: int = 480):
         self.url = rtsp_url
@@ -22,14 +21,15 @@ class RTSPCapture:
         self._thread = None
         self._lock = threading.Lock()
         self._fps = 0
+        self._new_frame = threading.Event()  # Signal when new frame available
 
     def _gst_pipeline(self) -> str:
-        """GStreamer pipeline for Jetson hardware decode."""
+        """GStreamer pipeline for Jetson hardware decode - ultra low latency."""
         return (
-            f"rtspsrc location={self.url} latency=50 drop-on-latency=true ! "
-            f"rtph264depay ! h264parse ! nvv4l2decoder ! "
+            f"rtspsrc location={self.url} latency=0 drop-on-latency=true buffer-mode=auto ! "
+            f"rtph264depay ! h264parse ! nvv4l2decoder enable-max-performance=true ! "
             f"nvvidconv ! video/x-raw,width={self.width},height={self.height},format=BGRx ! "
-            f"videoconvert ! video/x-raw,format=BGR ! appsink drop=1 max-buffers=1"
+            f"videoconvert ! video/x-raw,format=BGR ! appsink drop=1 max-buffers=1 sync=false"
         )
 
     def start(self):
@@ -54,7 +54,7 @@ class RTSPCapture:
         self._thread.start()
 
     def _loop(self):
-        """Capture loop."""
+        """Capture loop - grab frames as fast as possible."""
         frame_count = 0
         start = time.time()
 
@@ -62,27 +62,37 @@ class RTSPCapture:
             ret, frame = self._cap.read()
             if ret:
                 with self._lock:
-                    self._frame = frame
+                    self._frame = frame  # Don't copy here, copy on read
                     self._connected = True
+                self._new_frame.set()
                 frame_count += 1
 
-                # Update FPS every second
+                # Update FPS every 30 frames
                 if frame_count % 30 == 0:
-                    self._fps = frame_count / (time.time() - start)
+                    elapsed = time.time() - start
+                    self._fps = frame_count / elapsed if elapsed > 0 else 0
             else:
                 self._connected = False
-                time.sleep(0.1)
+                time.sleep(0.01)
 
     def read(self) -> np.ndarray:
-        """Get latest frame."""
+        """Get latest frame (returns copy for thread safety)."""
+        with self._lock:
+            return self._frame.copy() if self._frame is not None else None
+
+    def read_latest(self) -> np.ndarray:
+        """Get latest frame, waiting briefly if none available."""
+        self._new_frame.wait(timeout=0.05)
+        self._new_frame.clear()
         with self._lock:
             return self._frame.copy() if self._frame is not None else None
 
     def stop(self):
         """Stop capture."""
         self._running = False
+        self._new_frame.set()  # Unblock any waiters
         if self._thread:
-            self._thread.join(timeout=1)  # Wait max 1 second
+            self._thread.join(timeout=1)
         if self._cap:
             self._cap.release()
 

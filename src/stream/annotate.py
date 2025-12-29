@@ -1,7 +1,6 @@
 """Frame annotation - draw bounding boxes, skeletons, and stats."""
+import cv2
 import numpy as np
-from datetime import datetime
-
 
 # Body skeleton connections (no face - indices 5-16 only)
 BODY_SKELETON = [
@@ -19,6 +18,31 @@ BODY_SKELETON = [
     (14, 16), # right knee - right ankle
 ]
 
+# Pre-defined colors (avoid dict lookup in hot path)
+COLOR_PERSON = (0, 255, 0)
+COLOR_CAR = (255, 0, 0)
+COLOR_TRUCK = (255, 128, 0)
+COLOR_PACKAGE = (0, 255, 255)
+COLOR_DEFAULT = (128, 128, 128)
+COLOR_SKELETON = (0, 255, 255)
+COLOR_JOINT = (0, 165, 255)
+
+# Font settings
+FONT = cv2.FONT_HERSHEY_SIMPLEX
+
+
+def _get_color(class_name: str) -> tuple:
+    """Get color for class (optimized)."""
+    if class_name == "person":
+        return COLOR_PERSON
+    elif class_name == "car":
+        return COLOR_CAR
+    elif class_name == "truck":
+        return COLOR_TRUCK
+    elif class_name == "package":
+        return COLOR_PACKAGE
+    return COLOR_DEFAULT
+
 
 def annotate_frame(
     frame: np.ndarray,
@@ -27,71 +51,46 @@ def annotate_frame(
     inference_ms: float = 0,
     keypoints_list: list = None,
 ) -> np.ndarray:
-    """Draw boxes, skeletons, and stats on frame."""
-    import cv2
+    """Draw boxes, skeletons, and stats on frame (modifies in place for speed)."""
+    h, w = frame.shape[:2]
 
-    out = frame.copy()
-    colors = {"person": (0,255,0), "car": (255,0,0), "truck": (255,128,0), "package": (0,255,255)}
-
+    # Draw detections
     for d in detections:
         x1, y1, x2, y2 = d.bbox
-        color = colors.get(d.class_name, (128,128,128))
-        cv2.rectangle(out, (x1,y1), (x2,y2), color, 2)
+        color = _get_color(d.class_name)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
-        # Use description if available (includes color + type), otherwise fallback to class
-        if d.description:
-            label = f"{d.description.upper()} {d.confidence:.0%}"
-        else:
-            label = f"{d.class_name.upper()} {d.confidence:.0%}"
-        cv2.putText(out, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        # Use description if available
+        label = f"{d.description.upper() if d.description else d.class_name.upper()} {d.confidence:.0%}"
+        cv2.putText(frame, label, (x1, y1 - 5), FONT, 0.5, color, 2)
 
     # Draw pose skeletons if available
     if keypoints_list:
-        out = draw_skeletons(out, keypoints_list)
+        _draw_skeletons_fast(frame, keypoints_list)
 
-    # Stats overlay (top right)
-    h, w = out.shape[:2]
-
+    # Stats overlay (top right) - pre-format strings
     stats_text = f"FPS: {fps:.1f} | Inf: {inference_ms:.1f}ms"
-    (tw, th), _ = cv2.getTextSize(stats_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-    cv2.putText(out, stats_text, (w - tw - 10, 25),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
+    cv2.putText(frame, stats_text, (w - 200, 25), FONT, 0.6, COLOR_PERSON, 2)
 
-    time_text = datetime.now().strftime("%H:%M:%S")
-    (tw2, _), _ = cv2.getTextSize(time_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-    cv2.putText(out, time_text, (w - tw2 - 10, 50),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
-
-    return out
+    return frame
 
 
-def draw_skeletons(frame: np.ndarray, keypoints_list: list) -> np.ndarray:
-    """Draw body skeletons on frame (no face keypoints)."""
-    import cv2
-
-    skeleton_color = (0, 255, 255)  # Yellow
-    joint_color = (0, 165, 255)     # Orange
-
+def _draw_skeletons_fast(frame: np.ndarray, keypoints_list: list):
+    """Draw body skeletons on frame (optimized, no face keypoints)."""
     for keypoints in keypoints_list:
         if keypoints is None or len(keypoints) < 17:
             continue
 
         # Draw skeleton lines (body only)
         for start_idx, end_idx in BODY_SKELETON:
-            if start_idx >= len(keypoints) or end_idx >= len(keypoints):
-                continue
-
             x1, y1, conf1 = keypoints[start_idx]
             x2, y2, conf2 = keypoints[end_idx]
 
-            # Only draw if both points are confident enough
             if conf1 > 0.5 and conf2 > 0.5:
-                cv2.line(frame, (int(x1), int(y1)), (int(x2), int(y2)), skeleton_color, 2)
+                cv2.line(frame, (int(x1), int(y1)), (int(x2), int(y2)), COLOR_SKELETON, 2)
 
         # Draw joints (body only - indices 5-16)
-        for i in range(5, min(17, len(keypoints))):
+        for i in range(5, 17):
             x, y, conf = keypoints[i]
             if conf > 0.5:
-                cv2.circle(frame, (int(x), int(y)), 4, joint_color, -1)
-
-    return frame
+                cv2.circle(frame, (int(x), int(y)), 4, COLOR_JOINT, -1)
