@@ -733,12 +733,13 @@ class EventDetector:
         # Active tracked objects first (they have better info from classification)
         for obj in self._objects.values():
             detections.append({
-                "id": int(obj.id),  # Ensure native Python int
+                "id": obj.id,
                 "class": obj.class_name,
                 "color": obj.color or "",
                 "description": obj.description or obj.class_name,
-                "confidence": round(float(obj.confidence), 2),
+                "confidence": round(obj.confidence, 2),
                 "status": "active",
+                "bbox": obj.bbox,
             })
             used_bboxes.append(obj.bbox)
 
@@ -771,6 +772,7 @@ class EventDetector:
                 "description": desc,
                 "confidence": 0.9,
                 "status": "parked",
+                "bbox": parked_bbox,
             })
             if parked_bbox:
                 used_bboxes.append(parked_bbox)
@@ -803,6 +805,7 @@ class EventDetector:
                 "description": desc,
                 "confidence": 0.9,
                 "status": "stopped",
+                "bbox": stopped_bbox,
             })
             if stopped_bbox:
                 used_bboxes.append(stopped_bbox)
