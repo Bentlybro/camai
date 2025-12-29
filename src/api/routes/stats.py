@@ -258,3 +258,21 @@ async def get_alltime_stats():
     except Exception as e:
         logger.warning(f"Failed to get all-time stats: {e}")
         return {"total_events": 0, "person_events": 0, "vehicle_events": 0, "package_events": 0}
+
+
+@router.get("/detections")
+async def get_current_detections():
+    """Get currently visible/tracked objects in real-time."""
+    if not _state:
+        return {"detections": []}
+
+    events_tracker = _state.get("events")
+    if not events_tracker:
+        return {"detections": []}
+
+    try:
+        detections = events_tracker.get_current_detections()
+        return {"detections": detections}
+    except Exception as e:
+        logger.warning(f"Failed to get current detections: {e}")
+        return {"detections": []}

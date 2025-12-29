@@ -105,12 +105,12 @@ class EventDetector:
         # Parked vehicles: cars that have been stationary for 3+ minutes
         self._parked_vehicles: Dict[int, dict] = {}  # pid -> {bbox, first_seen, last_seen, signature, notified}
         self._parking_time = 180.0  # 3 minutes to be considered "parked"
-        self._parked_gone_timeout = 30.0  # 30 seconds of not seeing = car left
-        self._parked_iou_threshold = 0.3  # Threshold to match parked position
+        self._parked_gone_timeout = 60.0  # 60 seconds of not seeing = car left (handles YOLO flickering)
+        self._parked_iou_threshold = 0.25  # Threshold to match parked position (lowered for box drift)
 
         # Stopped vehicles: cars that stopped recently but not yet "parked"
         self._stopped_vehicles: Dict[int, dict] = {}  # sid -> {bbox, first_seen, last_seen, signature, notified}
-        self._stopped_gone_timeout = 10.0  # 10 seconds of not seeing = car moved on
+        self._stopped_gone_timeout = 20.0  # 20 seconds of not seeing = car moved on
 
         # Track recent detection positions to prevent spam from same location
         self._recent_detections: Dict[str, List[dict]] = {"person": [], "vehicle": [], "package": []}
@@ -142,6 +142,7 @@ class EventDetector:
         self._ptz = None
         self._last_camera_move_handled = 0  # Track when we last handled camera movement
         self._camera_settle_rescan_done = False  # Track if we've rescanned after camera settled
+        self._camera_move_logged = False  # Only log once per movement session
 
     def set_ptz(self, ptz_controller):
         """Set PTZ controller reference for camera movement detection."""
@@ -164,11 +165,6 @@ class EventDetector:
         """
         now = time.time()
 
-        # Only handle once per movement event
-        if self._ptz and self._ptz.last_movement_time <= self._last_camera_move_handled:
-            return
-
-        self._last_camera_move_handled = now
         self._camera_settle_rescan_done = False
 
         # Extend last_seen time for all parked/stopped vehicles to prevent false "left" events
@@ -177,7 +173,10 @@ class EventDetector:
         for sid, stopped in self._stopped_vehicles.items():
             stopped["last_seen"] = now
 
-        logger.info("Camera moved - extending parked vehicle timeouts")
+        # Only log once per movement session
+        if not self._camera_move_logged:
+            logger.info("Camera moving - extending parked vehicle timeouts")
+            self._camera_move_logged = True
 
     def _rescan_after_camera_settles(self, vehicle_detections: list):
         """
@@ -191,6 +190,7 @@ class EventDetector:
             return  # Camera still moving or recently moved
 
         self._camera_settle_rescan_done = True
+        self._camera_move_logged = False  # Reset for next movement
         now = time.time()
 
         # Clear old parking data since positions are now invalid
@@ -341,7 +341,9 @@ class EventDetector:
         # Check parked vehicles first
         for pid, parked in list(self._parked_vehicles.items()):
             overlap = iou(det.bbox, parked["bbox"])
-            if overlap >= self._parked_iou_threshold:
+            # Match by IoU OR by signature (for when detection box shifts)
+            sig_match = det.signature and parked.get("signature") and det.signature == parked["signature"]
+            if overlap >= self._parked_iou_threshold or (sig_match and overlap >= 0.1):
                 parked["last_seen"] = now
                 parked["bbox"] = det.bbox  # Update position (slight drift ok)
                 if det.signature and not parked.get("signature"):
@@ -351,7 +353,8 @@ class EventDetector:
         # Check stopped vehicles
         for sid, stopped in list(self._stopped_vehicles.items()):
             overlap = iou(det.bbox, stopped["bbox"])
-            if overlap >= self._parked_iou_threshold:
+            sig_match = det.signature and stopped.get("signature") and det.signature == stopped["signature"]
+            if overlap >= self._parked_iou_threshold or (sig_match and overlap >= 0.1):
                 stopped["last_seen"] = now
                 stopped["bbox"] = det.bbox
                 if det.signature and not stopped.get("signature"):
@@ -640,10 +643,10 @@ class EventDetector:
                     events.append(event)
                     self._fire(event)
 
-        # Remove stale objects - longer timeout for vehicles (5s) vs people (2s)
+        # Remove stale objects - longer timeout for vehicles (15s) to handle YOLO flickering
         stale = []
         for oid, obj in self._objects.items():
-            timeout = 5.0 if obj.class_name in ("car", "truck") else 2.0
+            timeout = 15.0 if obj.class_name in ("car", "truck") else 3.0
             if now - obj.last_seen > timeout:
                 stale.append(oid)
         for oid in stale:
@@ -697,3 +700,42 @@ class EventDetector:
             "stopped_count": len(self._stopped_vehicles),
             "parked_positions": list(self._parked_vehicles.keys()),
         }
+
+    def get_current_detections(self) -> list:
+        """Return list of all currently visible/tracked objects for display."""
+        detections = []
+
+        # Active tracked objects
+        for obj in self._objects.values():
+            detections.append({
+                "id": obj.id,
+                "class": obj.class_name,
+                "color": obj.color or "",
+                "description": obj.description or obj.class_name,
+                "confidence": round(obj.confidence, 2),
+                "status": "active",
+            })
+
+        # Parked vehicles
+        for pid, parked in self._parked_vehicles.items():
+            detections.append({
+                "id": pid,
+                "class": parked.get("class", "car"),
+                "color": parked.get("color", ""),
+                "description": f"{parked.get('color', '')} {parked.get('class', 'car')} (parked)".strip(),
+                "confidence": 0.9,
+                "status": "parked",
+            })
+
+        # Stopped vehicles
+        for sid, stopped in self._stopped_vehicles.items():
+            detections.append({
+                "id": sid,
+                "class": stopped.get("class", "car"),
+                "color": stopped.get("color", ""),
+                "description": f"{stopped.get('color', '')} {stopped.get('class', 'car')} (stopped)".strip(),
+                "confidence": 0.9,
+                "status": "stopped",
+            })
+
+        return detections

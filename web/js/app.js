@@ -24,6 +24,7 @@ class CAMAIDashboard {
         this.loadEvents();
         this.loadSnapshots();
         this.startStatsPolling();
+        this.startDetectionsPolling();
         this.checkPTZStatus();
     }
 
@@ -342,6 +343,91 @@ class CAMAIDashboard {
         } else {
             return `${secs}s`;
         }
+    }
+
+    // Live Detections
+    startDetectionsPolling() {
+        this.fetchDetections();
+        this.detectionsInterval = setInterval(() => this.fetchDetections(), 500);
+    }
+
+    async fetchDetections() {
+        try {
+            const response = await fetch('/api/stats/detections');
+            const data = await response.json();
+            this.renderDetections(data.detections || []);
+        } catch (e) {
+            // Silently fail - detections are non-critical
+        }
+    }
+
+    renderDetections(detections) {
+        const container = document.getElementById('live-detections');
+        const countBadge = document.getElementById('detection-count');
+        if (!container) return;
+
+        // Update count badge
+        if (countBadge) {
+            countBadge.textContent = detections.length;
+        }
+
+        if (detections.length === 0) {
+            container.innerHTML = '<div class="detection-empty">No objects detected</div>';
+            return;
+        }
+
+        // Group by status for better organization
+        const grouped = {
+            active: detections.filter(d => d.status === 'active'),
+            stopped: detections.filter(d => d.status === 'stopped'),
+            parked: detections.filter(d => d.status === 'parked')
+        };
+
+        let html = '';
+
+        // Active detections first
+        for (const det of grouped.active) {
+            html += this.renderDetectionItem(det);
+        }
+
+        // Stopped vehicles
+        for (const det of grouped.stopped) {
+            html += this.renderDetectionItem(det);
+        }
+
+        // Parked vehicles
+        for (const det of grouped.parked) {
+            html += this.renderDetectionItem(det);
+        }
+
+        container.innerHTML = html;
+    }
+
+    renderDetectionItem(det) {
+        const iconClass = det.class === 'person' ? 'person' :
+                         (det.class === 'car' || det.class === 'truck') ? 'vehicle' : 'package';
+        const icon = iconClass === 'person' ? '👤' : iconClass === 'vehicle' ? '🚗' : '📦';
+
+        const statusClass = det.status === 'active' ? '' :
+                           det.status === 'stopped' ? 'status-stopped' : 'status-parked';
+
+        const statusLabel = det.status === 'active' ? '' :
+                           det.status === 'stopped' ? 'Stopped' : 'Parked';
+
+        const confidence = det.confidence ? `${Math.round(det.confidence * 100)}%` : '';
+
+        return `
+            <div class="detection-item ${statusClass}">
+                <div class="detection-icon ${iconClass}">${icon}</div>
+                <div class="detection-info">
+                    <div class="detection-desc">${det.description || det.class}</div>
+                    <div class="detection-meta">
+                        ${confidence ? `<span class="detection-conf">${confidence}</span>` : ''}
+                        ${statusLabel ? `<span class="detection-status">${statusLabel}</span>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
     }
 
     // PTZ Controls
