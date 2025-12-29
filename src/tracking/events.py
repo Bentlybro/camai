@@ -216,6 +216,7 @@ class EventDetector:
                     "class": det.class_name,
                     "signature": det.signature,
                     "color": det.color,
+                    "description": det.description,
                 }
 
         logger.info(f"Camera settled - re-registered {len(self._parked_vehicles)} vehicles "
@@ -399,6 +400,7 @@ class EventDetector:
                 "class": det.class_name,
                 "signature": det.signature,
                 "color": det.color,
+                "description": det.description,
                 "notified_stopped": False,
             }
             logger.debug(f"Registered stopped vehicle at position {sid}")
@@ -413,6 +415,7 @@ class EventDetector:
             "class": stopped["class"],
             "signature": stopped.get("signature"),
             "color": stopped.get("color"),
+            "description": stopped.get("description"),
         }
         self._parked_vehicles[pid] = parked
         del self._stopped_vehicles[sid]
@@ -457,6 +460,7 @@ class EventDetector:
                             "class": det.class_name,
                             "signature": det.signature,
                             "color": det.color,
+                            "description": det.description,
                         }
                         logger.info(f"Startup: registered existing parked vehicle at {pid}")
 
@@ -736,24 +740,37 @@ class EventDetector:
                 "status": "active",
             })
 
-        # Parked vehicles
+        # Parked vehicles - use stored description if available
         for pid, parked in self._parked_vehicles.items():
+            # Build description: prefer stored description, fallback to color+class
+            desc = parked.get("description", "")
+            if not desc:
+                color = parked.get("color", "")
+                cls = parked.get("class", "car")
+                desc = f"{color} {cls}".strip() if color else cls
+
             detections.append({
                 "id": pid,
                 "class": parked.get("class", "car"),
                 "color": parked.get("color", ""),
-                "description": f"{parked.get('color', '')} {parked.get('class', 'car')} (parked)".strip(),
+                "description": desc,
                 "confidence": 0.9,
                 "status": "parked",
             })
 
-        # Stopped vehicles
+        # Stopped vehicles - use stored description if available
         for sid, stopped in self._stopped_vehicles.items():
+            desc = stopped.get("description", "")
+            if not desc:
+                color = stopped.get("color", "")
+                cls = stopped.get("class", "car")
+                desc = f"{color} {cls}".strip() if color else cls
+
             detections.append({
                 "id": sid,
                 "class": stopped.get("class", "car"),
                 "color": stopped.get("color", ""),
-                "description": f"{stopped.get('color', '')} {stopped.get('class', 'car')} (stopped)".strip(),
+                "description": desc,
                 "confidence": 0.9,
                 "status": "stopped",
             })
