@@ -416,7 +416,7 @@ class NotificationManager:
         """Stop notification worker."""
         self._running = False
         if self._thread:
-            self._thread.join(timeout=5)
+            self._thread.join(timeout=1)  # Wait max 1 second
 
     def notify(self, event: Event, snapshot: np.ndarray = None, keypoints: list = None):
         """Queue notification with optional pose keypoints for head extraction."""
@@ -426,7 +426,7 @@ class NotificationManager:
     def _worker(self):
         while self._running:
             try:
-                event, snapshot, keypoints = self._queue.get(timeout=1)
+                event, snapshot, keypoints = self._queue.get(timeout=0.2)
                 for handler in self._handlers:
                     try:
                         handler.send(event, snapshot, keypoints)
@@ -572,9 +572,9 @@ class DiscordHandler:
             _, buf = cv2.imencode('.jpg', combined)
             files = {"file": ("snapshot.jpg", io.BytesIO(buf.tobytes()), "image/jpeg")}
             embed["image"] = {"url": "attachment://snapshot.jpg"}
-            requests.post(self.url, data={"payload_json": json.dumps({"embeds": [embed]})}, files=files, timeout=10)
+            requests.post(self.url, data={"payload_json": json.dumps({"embeds": [embed]})}, files=files, timeout=3)
         else:
-            requests.post(self.url, json={"embeds": [embed]}, timeout=5)
+            requests.post(self.url, json={"embeds": [embed]}, timeout=2)
 
 
 class MQTTHandler:

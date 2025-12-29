@@ -81,6 +81,8 @@ class RTSPCapture:
     def stop(self):
         """Stop capture."""
         self._running = False
+        if self._thread:
+            self._thread.join(timeout=1)  # Wait max 1 second
         if self._cap:
             self._cap.release()
 
