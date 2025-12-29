@@ -13,6 +13,7 @@ class StreamServer:
         self._frame = None
         self._clean_frame = None
         self._lock = threading.Lock()
+        self._frame_ready = threading.Event()  # Signal when new frame encoded
         # Async encoding
         self._encode_queue = Queue(maxsize=2)
         self._running = True
@@ -38,6 +39,7 @@ class StreamServer:
                     self._frame = encoded
                     if clean_encoded:
                         self._clean_frame = clean_encoded
+                self._frame_ready.set()  # Signal new frame available
             except Empty:
                 continue
 
@@ -57,5 +59,13 @@ class StreamServer:
         with self._lock:
             return self._clean_frame
 
+    def wait_for_frame(self, timeout: float = 0.1) -> bool:
+        """Wait for a new frame to be available."""
+        if self._frame_ready.wait(timeout=timeout):
+            self._frame_ready.clear()
+            return True
+        return False
+
     def stop(self):
         self._running = False
+        self._frame_ready.set()  # Unblock any waiters

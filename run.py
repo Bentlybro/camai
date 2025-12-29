@@ -244,7 +244,6 @@ def main():
         while running:
             frame = capture.read()
             if frame is None:
-                time.sleep(0.001)  # Shorter sleep
                 continue
 
             frame_count += 1

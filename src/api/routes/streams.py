@@ -1,5 +1,4 @@
 """Video stream API routes."""
-import time
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
@@ -18,10 +17,11 @@ def generate_mjpeg():
     stream_server = _state["stream_server"]
     while True:
         if stream_server:
+            # Wait for new frame (event-based, no polling)
+            stream_server.wait_for_frame(timeout=0.1)
             frame = stream_server.get_frame()
             if frame:
                 yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
-        time.sleep(1/30)
 
 
 def generate_clean_mjpeg():
@@ -29,10 +29,11 @@ def generate_clean_mjpeg():
     stream_server = _state["stream_server"]
     while True:
         if stream_server:
+            # Wait for new frame (event-based, no polling)
+            stream_server.wait_for_frame(timeout=0.1)
             frame = stream_server.get_clean_frame()
             if frame:
                 yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
-        time.sleep(1/30)
 
 
 @router.get("/stream")

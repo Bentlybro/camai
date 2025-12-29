@@ -73,7 +73,7 @@ class RTSPCapture:
                     self._fps = frame_count / elapsed if elapsed > 0 else 0
             else:
                 self._connected = False
-                time.sleep(0.01)
+                # No sleep - just retry immediately
 
     def read(self) -> np.ndarray:
         """Get latest frame (returns copy for thread safety)."""
@@ -112,8 +112,5 @@ class RTSPCapture:
             self.height = height
 
         self.stop()
-        if self._thread:
-            self._thread.join(timeout=2)
         self._frame = None
-        time.sleep(0.5)
         self.start()
