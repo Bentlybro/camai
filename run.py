@@ -108,11 +108,52 @@ def main():
 
     events.on_event(on_event)
 
-    # PTZ control - connect if host is configured (manual control always available)
+    # Start capture early so RTSP connects while models load
+    capture.start()
+    notifier.start()
+
+    # === PARALLEL INITIALIZATION ===
+    # Load models and connect PTZ in parallel for faster startup
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     ptz = None
-    if cfg.ptz_host:
+    pose = None
+    classifier = None
+    load_results = {}
+
+    def load_detector():
+        log.info(f"Loading model: {cfg.model_path}")
+        detector.load()
+        log.info(f"Model loaded. Inference: ~{detector.inference_ms:.1f}ms")
+        return ("detector", True)
+
+    def load_pose():
+        if not cfg.enable_pose:
+            return ("pose", None)
+        p = PoseEstimator(cfg.pose_model_path, cfg.confidence)
+        if p.load():
+            log.info("Pose estimation enabled")
+            return ("pose", p)
+        else:
+            log.warning("Pose estimation disabled - model failed to load")
+            return ("pose", None)
+
+    def load_classifier():
+        if not cfg.enable_classifier:
+            return ("classifier", None)
+        c = ImageClassifier(cfg.classifier_model_path, cfg.confidence)
+        if c.load():
+            log.info("Image classifier enabled")
+            return ("classifier", c)
+        else:
+            log.warning("Image classifier disabled - model failed to load")
+            return ("classifier", None)
+
+    def connect_ptz():
+        if not cfg.ptz_host:
+            return ("ptz", None)
         ptz_config = PTZConfig(
-            enabled=cfg.enable_ptz,  # This controls auto-tracking only
+            enabled=cfg.enable_ptz,
             host=cfg.ptz_host,
             port=cfg.ptz_port,
             username=cfg.ptz_username,
@@ -122,42 +163,37 @@ def main():
             return_home=cfg.ptz_return_home,
             home_delay=cfg.ptz_home_delay,
         )
-        ptz = PTZController(ptz_config)
-        if ptz.connect():
+        p = PTZController(ptz_config)
+        if p.connect():
             if cfg.enable_ptz:
                 log.info("PTZ connected - auto-tracking enabled")
             else:
                 log.info("PTZ connected - manual control only")
-            # Connect PTZ to event detector for camera movement awareness
-            events.set_ptz(ptz)
+            return ("ptz", p)
         else:
             log.warning("PTZ connection failed")
-            ptz = None
+            return ("ptz", None)
 
-    # Load model
-    log.info(f"Loading model: {cfg.model_path}")
-    detector.load()
-    log.info(f"Model loaded. Inference: ~{detector.inference_ms:.1f}ms")
+    # Run all loading tasks in parallel
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [
+            executor.submit(load_detector),
+            executor.submit(load_pose),
+            executor.submit(load_classifier),
+            executor.submit(connect_ptz),
+        ]
+        for future in as_completed(futures):
+            name, result = future.result()
+            load_results[name] = result
 
-    # Pose estimation (optional)
-    pose = None
-    if cfg.enable_pose:
-        pose = PoseEstimator(cfg.pose_model_path, cfg.confidence)
-        if pose.load():
-            log.info("Pose estimation enabled")
-        else:
-            log.warning("Pose estimation disabled - model failed to load")
-            pose = None
+    # Get results
+    pose = load_results.get("pose")
+    classifier = load_results.get("classifier")
+    ptz = load_results.get("ptz")
 
-    # Image classifier (for better object identification)
-    classifier = None
-    if cfg.enable_classifier:
-        classifier = ImageClassifier(cfg.classifier_model_path, cfg.confidence)
-        if classifier.load():
-            log.info("Image classifier enabled")
-        else:
-            log.warning("Image classifier disabled - model failed to load")
-            classifier = None
+    # Connect PTZ to event detector
+    if ptz:
+        events.set_ptz(ptz)
 
     # Set API state
     api.set_state("config", cfg)
@@ -169,10 +205,6 @@ def main():
     api.set_state("classifier", classifier)
     api.set_state("stream_server", stream)
     api.set_state("notifier", notifier)
-
-    # Start components
-    capture.start()
-    notifier.start()
 
     # Start FastAPI in a thread
     api_thread = threading.Thread(target=run_fastapi, args=(cfg.stream_port,), daemon=True)
