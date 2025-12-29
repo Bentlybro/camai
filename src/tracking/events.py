@@ -646,15 +646,26 @@ class EventDetector:
 
     @property
     def tracked_count(self) -> int:
-        """Return total number of tracked objects."""
+        """Return total number of tracked objects (including parked/stopped vehicles)."""
+        return len(self._objects) + len(self._parked_vehicles) + len(self._stopped_vehicles)
+
+    @property
+    def active_count(self) -> int:
+        """Return number of actively moving objects (not parked)."""
         return len(self._objects)
 
     @property
     def tracked_by_class(self) -> dict:
-        """Return counts by class."""
+        """Return counts by class (including parked vehicles)."""
         counts = defaultdict(int)
         for obj in self._objects.values():
             counts[obj.class_name] += 1
+        # Include parked vehicles
+        for parked in self._parked_vehicles.values():
+            counts[parked["class"]] += 1
+        # Include stopped vehicles
+        for stopped in self._stopped_vehicles.values():
+            counts[stopped["class"]] += 1
         return dict(counts)
 
     @property
