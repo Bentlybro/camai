@@ -89,11 +89,14 @@ def main():
     def on_event(event):
         frame = capture.read()
 
+        # Get keypoints from API state (stored by main loop before events.update)
+        keypoints = api.get_state("latest_keypoints")
+
         # Get snapshot path before notification
         snapshot_path = notifier.get_snapshot_path(event, frame)
 
-        # Send notification (will save snapshot)
-        notifier.notify(event, frame)
+        # Send notification with keypoints for head extraction
+        notifier.notify(event, frame, keypoints=keypoints)
 
         # Build event dict with snapshot path
         event_dict = event.to_dict()
@@ -225,18 +228,22 @@ def main():
                         d.description = result.description
                         d.signature = f"{result.color}_{d.class_name}" if result.color else d.class_name
 
+            # Pose estimation BEFORE events (so keypoints available for notifications)
+            keypoints = None
+            people_detected = any(d.class_name == "person" for d in detections)
+            if pose and cfg.enable_pose and people_detected:
+                keypoints = pose.estimate(frame)
+                # Store keypoints in API state for notification access
+                api.set_state("latest_keypoints", keypoints)
+            else:
+                api.set_state("latest_keypoints", None)
+
             # Update events
             _ = events.update(detections, frame.shape[1], frame.shape[0])
 
             # PTZ tracking (follows people only)
             if ptz and cfg.enable_ptz:
                 ptz.track_person(detections, frame.shape[1], frame.shape[0])
-
-            # Pose estimation (only if enabled AND people are detected)
-            keypoints = None
-            people_detected = any(d.class_name == "person" for d in detections)
-            if pose and cfg.enable_pose and people_detected:
-                keypoints = pose.estimate(frame)
 
             # Update stream frames
             elapsed = time.time() - start_time

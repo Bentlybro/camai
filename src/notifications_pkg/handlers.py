@@ -14,45 +14,99 @@ from tracking.events import Event
 
 logger = logging.getLogger(__name__)
 
-# Face detector singleton (lazy loaded)
-_face_detector = None
-
-
-def get_face_detector():
-    """Get face detector, loading if needed."""
-    global _face_detector
-    if _face_detector is None:
-        try:
-            from core.face_detector import FaceDetector
-            _face_detector = FaceDetector(min_confidence=0.5)
-            if _face_detector.load():
-                logger.info("Face detector loaded for notifications")
-            else:
-                logger.warning("Face detector failed to load")
-                _face_detector = None
-        except Exception as e:
-            logger.warning(f"Could not load face detector: {e}")
-            _face_detector = None
-    return _face_detector
-
-
-def extract_face_crop(frame: np.ndarray, bbox: tuple, padding: float = 0.2) -> Optional[np.ndarray]:
+def extract_head_crop_from_keypoints(frame: np.ndarray, keypoints: list, padding: float = 0.5) -> Optional[np.ndarray]:
     """
-    Extract face from person bounding box region.
+    Extract head region using pose estimation keypoints.
+
+    COCO keypoints 0-4 are head points: nose, left_eye, right_eye, left_ear, right_ear
+
+    Args:
+        frame: Full frame
+        keypoints: List of [x, y, confidence] for 17 COCO keypoints
+        padding: Extra padding around head region
+
+    Returns:
+        Cropped head image or None
+    """
+    if frame is None or not keypoints:
+        return None
+
+    try:
+        h, w = frame.shape[:2]
+
+        # Head keypoints: nose(0), left_eye(1), right_eye(2), left_ear(3), right_ear(4)
+        head_points = []
+        min_conf = 0.3  # Minimum confidence to use a keypoint
+
+        for i in range(5):  # First 5 keypoints are head
+            if i < len(keypoints):
+                x, y, conf = keypoints[i]
+                if conf > min_conf and x > 0 and y > 0:
+                    head_points.append((x, y))
+
+        if len(head_points) < 2:
+            # Not enough head keypoints detected
+            return None
+
+        # Calculate bounding box around head points
+        xs = [p[0] for p in head_points]
+        ys = [p[1] for p in head_points]
+
+        cx = sum(xs) / len(xs)
+        cy = sum(ys) / len(ys)
+
+        # Estimate head size from keypoint spread
+        spread_x = max(xs) - min(xs) if len(xs) > 1 else 50
+        spread_y = max(ys) - min(ys) if len(ys) > 1 else 50
+
+        # Head is roughly square, use larger dimension
+        head_size = max(spread_x, spread_y, 40)  # Minimum 40px
+
+        # Add padding to get full head
+        head_size = head_size * (1 + padding)
+
+        # Calculate crop box centered on head
+        x1 = int(cx - head_size)
+        y1 = int(cy - head_size * 0.6)  # Head extends more above center
+        x2 = int(cx + head_size)
+        y2 = int(cy + head_size * 0.8)  # Less below (neck area)
+
+        # Clamp to frame bounds
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(w, x2), min(h, y2)
+
+        if x2 <= x1 or y2 <= y1:
+            return None
+
+        head_crop = frame[y1:y2, x1:x2].copy()
+
+        # Resize to standard size for display (150x150 minimum)
+        if head_crop.shape[0] < 150 or head_crop.shape[1] < 150:
+            scale = max(150 / head_crop.shape[0], 150 / head_crop.shape[1])
+            new_w = int(head_crop.shape[1] * scale)
+            new_h = int(head_crop.shape[0] * scale)
+            head_crop = cv2.resize(head_crop, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+
+        return head_crop
+
+    except Exception as e:
+        logger.debug(f"Head extraction from keypoints failed: {e}")
+        return None
+
+
+def extract_head_crop_from_bbox(frame: np.ndarray, bbox: tuple, padding: float = 0.2) -> Optional[np.ndarray]:
+    """
+    Fallback: Extract head region from upper portion of person bounding box.
 
     Args:
         frame: Full frame
         bbox: Person bounding box (x1, y1, x2, y2)
-        padding: Extra padding around detected face
+        padding: Extra padding
 
     Returns:
-        Cropped and resized face image, or None if no face found
+        Cropped head image or None
     """
     if frame is None or not bbox:
-        return None
-
-    detector = get_face_detector()
-    if detector is None:
         return None
 
     try:
@@ -66,87 +120,174 @@ def extract_face_crop(frame: np.ndarray, bbox: tuple, padding: float = 0.2) -> O
         if x2 <= x1 or y2 <= y1:
             return None
 
-        # Crop person region
-        person_crop = frame[y1:y2, x1:x2]
+        person_h = y2 - y1
+        person_w = x2 - x1
 
-        # Detect face in person crop
-        face = detector.detect_largest(person_crop)
-        if face is None:
+        # Head is roughly top 25% of person bbox, centered horizontally
+        head_h = int(person_h * 0.28)
+        head_w = int(person_w * 0.6)  # Head narrower than shoulders
+
+        # Center the head crop horizontally
+        center_x = (x1 + x2) // 2
+        hx1 = center_x - head_w // 2
+        hx2 = center_x + head_w // 2
+        hy1 = y1
+        hy2 = y1 + head_h
+
+        # Add padding
+        pad_x = int(head_w * padding)
+        pad_y = int(head_h * padding)
+        hx1 = max(0, hx1 - pad_x)
+        hy1 = max(0, hy1 - pad_y)
+        hx2 = min(w, hx2 + pad_x)
+        hy2 = min(h, hy2 + pad_y)
+
+        if hx2 <= hx1 or hy2 <= hy1:
             return None
 
-        fx1, fy1, fx2, fy2, conf = face
-        face_h = fy2 - fy1
-        face_w = fx2 - fx1
-
-        # Add padding around face
-        pad_x = int(face_w * padding)
-        pad_y = int(face_h * padding)
-
-        # Expand with padding, clamped to person crop bounds
-        ph, pw = person_crop.shape[:2]
-        fx1 = max(0, fx1 - pad_x)
-        fy1 = max(0, fy1 - pad_y)
-        fx2 = min(pw, fx2 + pad_x)
-        fy2 = min(ph, fy2 + pad_y)
-
-        face_crop = person_crop[fy1:fy2, fx1:fx2]
+        head_crop = frame[hy1:hy2, hx1:hx2].copy()
 
         # Resize to standard size for display (150x150 minimum)
-        if face_crop.shape[0] < 150 or face_crop.shape[1] < 150:
-            scale = max(150 / face_crop.shape[0], 150 / face_crop.shape[1])
-            new_w = int(face_crop.shape[1] * scale)
-            new_h = int(face_crop.shape[0] * scale)
-            face_crop = cv2.resize(face_crop, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+        if head_crop.shape[0] < 150 or head_crop.shape[1] < 150:
+            scale = max(150 / head_crop.shape[0], 150 / head_crop.shape[1])
+            new_w = int(head_crop.shape[1] * scale)
+            new_h = int(head_crop.shape[0] * scale)
+            head_crop = cv2.resize(head_crop, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
 
-        return face_crop
+        return head_crop
 
     except Exception as e:
-        logger.debug(f"Face extraction failed: {e}")
+        logger.debug(f"Head extraction from bbox failed: {e}")
         return None
 
 
-def create_combined_snapshot(full_frame: np.ndarray, face_crop: np.ndarray,
+def extract_head_crop(frame: np.ndarray, bbox: tuple, keypoints: list = None, padding: float = 0.3) -> Optional[np.ndarray]:
+    """
+    Extract head crop using best available method.
+
+    Priority:
+    1. Pose estimation keypoints (most accurate)
+    2. Upper portion of person bbox (fallback)
+
+    Args:
+        frame: Full frame
+        bbox: Person bounding box (x1, y1, x2, y2)
+        keypoints: Optional pose keypoints [x, y, conf] for this person
+        padding: Extra padding around head
+
+    Returns:
+        Cropped head image or None
+    """
+    if frame is None:
+        return None
+
+    # Try pose keypoints first (most accurate for distant/low-res subjects)
+    if keypoints:
+        head_crop = extract_head_crop_from_keypoints(frame, keypoints, padding)
+        if head_crop is not None:
+            logger.debug("Head extracted using pose keypoints")
+            return head_crop
+
+    # Fallback to bbox-based estimation
+    if bbox:
+        head_crop = extract_head_crop_from_bbox(frame, bbox, padding)
+        if head_crop is not None:
+            logger.debug("Head extracted using bbox estimation")
+            return head_crop
+
+    return None
+
+
+def find_matching_keypoints(bbox: tuple, all_keypoints: list) -> Optional[list]:
+    """
+    Find the keypoints that best match a person bounding box.
+
+    Args:
+        bbox: Person bounding box (x1, y1, x2, y2)
+        all_keypoints: List of keypoints for all detected people
+
+    Returns:
+        Keypoints for the matching person, or None
+    """
+    if not all_keypoints or not bbox:
+        return None
+
+    x1, y1, x2, y2 = [int(c) for c in bbox]
+    bbox_cx = (x1 + x2) / 2
+    bbox_cy = (y1 + y2) / 2
+
+    best_match = None
+    best_dist = float('inf')
+
+    for person_kpts in all_keypoints:
+        # Calculate center of visible keypoints
+        visible_points = []
+        for kpt in person_kpts:
+            x, y, conf = kpt
+            if conf > 0.3 and x > 0 and y > 0:
+                visible_points.append((x, y))
+
+        if not visible_points:
+            continue
+
+        # Center of this person's keypoints
+        kpt_cx = sum(p[0] for p in visible_points) / len(visible_points)
+        kpt_cy = sum(p[1] for p in visible_points) / len(visible_points)
+
+        # Distance from bbox center
+        dist = ((kpt_cx - bbox_cx) ** 2 + (kpt_cy - bbox_cy) ** 2) ** 0.5
+
+        # Check if keypoints are within or near the bbox
+        if x1 - 50 <= kpt_cx <= x2 + 50 and y1 - 50 <= kpt_cy <= y2 + 50:
+            if dist < best_dist:
+                best_dist = dist
+                best_match = person_kpts
+
+    return best_match
+
+
+def create_combined_snapshot(full_frame: np.ndarray, head_crop: np.ndarray,
                             event: Event) -> np.ndarray:
     """
-    Create a combined image with annotated full frame and face crop inset.
+    Create a combined image with annotated full frame and head crop inset.
 
-    The face crop is placed in the top-right corner of the annotated frame.
+    The head crop is placed in the top-right corner of the annotated frame.
     """
     # Annotate the full frame first
     annotated = annotate_snapshot(full_frame, event)
 
-    if face_crop is None:
+    if head_crop is None:
         return annotated
 
     h, w = annotated.shape[:2]
-    fh, fw = face_crop.shape[:2]
+    hh, hw = head_crop.shape[:2]
 
-    # Limit face crop size (max 200px or 25% of frame)
+    # Limit head crop size (max 200px or 25% of frame)
     max_size = min(200, w // 4, h // 4)
-    if fh > max_size or fw > max_size:
-        scale = max_size / max(fh, fw)
-        fw = int(fw * scale)
-        fh = int(fh * scale)
-        face_crop = cv2.resize(face_crop, (fw, fh))
+    if hh > max_size or hw > max_size:
+        scale = max_size / max(hh, hw)
+        hw = int(hw * scale)
+        hh = int(hh * scale)
+        head_crop = cv2.resize(head_crop, (hw, hh))
 
     # Position in top-right corner with margin
     margin = 10
-    x_pos = w - fw - margin
+    x_pos = w - hw - margin
     y_pos = margin
 
-    # Draw border around face crop
+    # Draw border around head crop
     border = 3
     cv2.rectangle(annotated,
                   (x_pos - border, y_pos - border),
-                  (x_pos + fw + border, y_pos + fh + border),
+                  (x_pos + hw + border, y_pos + hh + border),
                   (0, 255, 0), border)
 
-    # Add "FACE" label
-    cv2.putText(annotated, "FACE", (x_pos, y_pos - border - 5),
+    # Add "HEAD" label
+    cv2.putText(annotated, "HEAD", (x_pos, y_pos - border - 5),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-    # Overlay face crop
-    annotated[y_pos:y_pos+fh, x_pos:x_pos+fw] = face_crop
+    # Overlay head crop
+    annotated[y_pos:y_pos+hh, x_pos:x_pos+hw] = head_crop
 
     return annotated
 
@@ -277,18 +418,18 @@ class NotificationManager:
         if self._thread:
             self._thread.join(timeout=5)
 
-    def notify(self, event: Event, snapshot: np.ndarray = None):
-        """Queue notification."""
+    def notify(self, event: Event, snapshot: np.ndarray = None, keypoints: list = None):
+        """Queue notification with optional pose keypoints for head extraction."""
         snap_copy = snapshot.copy() if snapshot is not None else None
-        self._queue.put((event, snap_copy))
+        self._queue.put((event, snap_copy, keypoints))
 
     def _worker(self):
         while self._running:
             try:
-                event, snapshot = self._queue.get(timeout=1)
+                event, snapshot, keypoints = self._queue.get(timeout=1)
                 for handler in self._handlers:
                     try:
-                        handler.send(event, snapshot)
+                        handler.send(event, snapshot, keypoints)
                     except Exception as e:
                         logger.error(f"Handler error: {e}")
             except Empty:
@@ -313,7 +454,7 @@ class FileLogger:
         filename = f"{event.event_type.value}_{ts}.jpg"
         return f"/api/snapshots/{filename}"
 
-    def send(self, event: Event, snapshot: np.ndarray = None):
+    def send(self, event: Event, snapshot: np.ndarray = None, keypoints: list = None):
         entry = event.to_dict()
         entry["timestamp_iso"] = datetime.fromtimestamp(event.timestamp).isoformat()
 
@@ -323,21 +464,23 @@ class FileLogger:
             filename = f"{event.event_type.value}_{ts}.jpg"
             path = self.snapshot_dir / filename
 
-            # For person events, try to extract face
-            face_crop = None
+            # For person events, try to extract head crop
+            head_crop = None
             if event.class_name == "person":
-                face_crop = extract_face_crop(snapshot, event.bbox)
-                if face_crop is not None:
-                    # Save separate face crop
-                    face_filename = f"{event.event_type.value}_{ts}_face.jpg"
-                    face_path = self.snapshot_dir / face_filename
-                    cv2.imwrite(str(face_path), face_crop)
-                    entry["face_snapshot"] = str(face_path)
-                    entry["face_snapshot_path"] = f"/api/snapshots/{face_filename}"
-                    logger.debug(f"Face crop saved: {face_filename}")
+                # Find matching keypoints for this person
+                person_keypoints = find_matching_keypoints(event.bbox, keypoints)
+                head_crop = extract_head_crop(snapshot, event.bbox, person_keypoints)
+                if head_crop is not None:
+                    # Save separate head crop
+                    head_filename = f"{event.event_type.value}_{ts}_head.jpg"
+                    head_path = self.snapshot_dir / head_filename
+                    cv2.imwrite(str(head_path), head_crop)
+                    entry["head_snapshot"] = str(head_path)
+                    entry["head_snapshot_path"] = f"/api/snapshots/{head_filename}"
+                    logger.debug(f"Head crop saved: {head_filename}")
 
-            # Create combined snapshot (full frame with face inset if available)
-            combined = create_combined_snapshot(snapshot, face_crop, event)
+            # Create combined snapshot (full frame with head inset if available)
+            combined = create_combined_snapshot(snapshot, head_crop, event)
             cv2.imwrite(str(path), combined)
             entry["snapshot"] = str(path)
             self._last_snapshot_path = f"/api/snapshots/{filename}"
@@ -391,7 +534,7 @@ class DiscordHandler:
     def __init__(self, webhook_url: str):
         self.url = webhook_url
 
-    def send(self, event: Event, snapshot: np.ndarray = None):
+    def send(self, event: Event, snapshot: np.ndarray = None, keypoints: list = None):
         import requests
         import io
 
@@ -416,15 +559,16 @@ class DiscordHandler:
         }
 
         if snapshot is not None:
-            # For person events, try to extract face and create combined image
-            face_crop = None
+            # For person events, try to extract head crop
+            head_crop = None
             if event.class_name == "person":
-                face_crop = extract_face_crop(snapshot, event.bbox)
-                if face_crop is not None:
-                    embed["fields"].append({"name": "Face", "value": "Detected ✓", "inline": True})
+                person_keypoints = find_matching_keypoints(event.bbox, keypoints)
+                head_crop = extract_head_crop(snapshot, event.bbox, person_keypoints)
+                if head_crop is not None:
+                    embed["fields"].append({"name": "Head", "value": "Captured", "inline": True})
 
-            # Create combined snapshot (with face inset if available)
-            combined = create_combined_snapshot(snapshot, face_crop, event)
+            # Create combined snapshot (with head inset if available)
+            combined = create_combined_snapshot(snapshot, head_crop, event)
             _, buf = cv2.imencode('.jpg', combined)
             files = {"file": ("snapshot.jpg", io.BytesIO(buf.tobytes()), "image/jpeg")}
             embed["image"] = {"url": "attachment://snapshot.jpg"}
@@ -447,6 +591,6 @@ class MQTTHandler:
             logger.error(f"MQTT connect failed: {e}")
             self.client = None
 
-    def send(self, event: Event, snapshot: np.ndarray = None):
+    def send(self, event: Event, snapshot: np.ndarray = None, keypoints: list = None):
         if self.client:
             self.client.publish(f"{self.topic}/{event.event_type.value}", json.dumps(event.to_dict()))
