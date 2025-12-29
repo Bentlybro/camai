@@ -258,40 +258,43 @@ def main():
                          (d.class_name in ("car", "truck") and cfg.detect_vehicle) or
                          (d.class_name == "package" and cfg.detect_package)]
 
+            # === TRACKING FIRST (copies cached classifications to detections) ===
+            events.update(detections, frame_w, frame_h)
+
             # === PARALLEL PROCESSING ===
-            # Run classifier and pose estimation in parallel
             keypoints = None
             people_detected = any(d.class_name == "person" for d in detections)
 
             pose_future = None
-            classify_future = None
 
             # Submit pose estimation (if needed)
             if pose and cfg.enable_pose and people_detected:
                 pose_future = process_pool.submit(pose.estimate, frame)
 
-            # Submit classification (if needed) - classify all detections in one call
-            if classifier and cfg.enable_classifier and detections:
-                def classify_all(frame, dets):
-                    for d in dets:
-                        result = classifier.classify(frame, d.bbox, d.class_name)
-                        if result:
-                            d.color = result.color
-                            d.description = result.description
-                            d.signature = f"{result.color}_{d.class_name}" if result.color else d.class_name
-                classify_future = process_pool.submit(classify_all, frame, detections)
+            # Classify only NEW detections (those without cached signature)
+            if classifier and cfg.enable_classifier:
+                classified_any = False
+                for d in detections:
+                    # Skip if already has signature (from tracking cache)
+                    if d.signature:
+                        continue
+                    # Classify this new detection
+                    result = classifier.classify(frame, d.bbox, d.class_name)
+                    if result:
+                        d.color = result.color
+                        d.description = result.description
+                        d.signature = f"{result.color}_{d.class_name}" if result.color else d.class_name
+                        classified_any = True
+                # Update tracked objects with new classifications
+                if classified_any:
+                    events.update_classifications(detections)
 
-            # Wait for results
+            # Wait for pose results
             if pose_future:
                 keypoints = pose_future.result()
-            if classify_future:
-                classify_future.result()  # Updates detections in place
 
             # Store keypoints for notifications
             api.set_state("latest_keypoints", keypoints)
-
-            # === EVENT PROCESSING (fast, CPU) ===
-            events.update(detections, frame_w, frame_h)
 
             # PTZ tracking
             if ptz and cfg.enable_ptz:

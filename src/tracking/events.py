@@ -524,11 +524,18 @@ class EventDetector:
                 obj.last_seen = now
                 obj.bbox = det.bbox
                 obj.confidence = det.confidence
-                # Update classification if available
+
+                # Classification caching: if detection has new classification, update tracked object
+                # If detection has no classification, copy from tracked object (cache hit)
                 if det.signature:
                     obj.signature = det.signature
                     obj.color = det.color
                     obj.description = det.description
+                elif obj.signature:
+                    # Copy cached classification to detection (avoid re-classifying)
+                    det.signature = obj.signature
+                    det.color = obj.color
+                    det.description = obj.description
 
                 # Track position history for people (loitering detection)
                 if obj.class_name == "person":
@@ -643,6 +650,20 @@ class EventDetector:
             del self._objects[oid]
 
         return events
+
+    def update_classifications(self, detections: list):
+        """Update tracked objects with classification info from detections."""
+        for det in detections:
+            if not det.signature:
+                continue
+            # Find matching tracked object and update it
+            oid = self._match(det)
+            if oid is not None and oid in self._objects:
+                obj = self._objects[oid]
+                if not obj.signature:  # Only update if not already set
+                    obj.signature = det.signature
+                    obj.color = det.color
+                    obj.description = det.description
 
     @property
     def tracked_count(self) -> int:
