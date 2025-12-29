@@ -728,8 +728,9 @@ class EventDetector:
     def get_current_detections(self) -> list:
         """Return list of all currently visible/tracked objects for display."""
         detections = []
+        used_bboxes = []  # Track bboxes to avoid duplicates
 
-        # Active tracked objects
+        # Active tracked objects first (they have better info from classification)
         for obj in self._objects.values():
             detections.append({
                 "id": obj.id,
@@ -738,10 +739,25 @@ class EventDetector:
                 "description": obj.description or obj.class_name,
                 "confidence": round(obj.confidence, 2),
                 "status": "active",
+                "bbox": obj.bbox,
             })
+            used_bboxes.append(obj.bbox)
 
-        # Parked vehicles - use stored description if available
+        # Parked vehicles - skip if already covered by an active detection
         for pid, parked in self._parked_vehicles.items():
+            parked_bbox = parked.get("bbox")
+
+            # Check if this parked vehicle overlaps with any active detection
+            is_duplicate = False
+            if parked_bbox:
+                for used_bbox in used_bboxes:
+                    if iou(parked_bbox, used_bbox) > 0.1:  # Any significant overlap = duplicate
+                        is_duplicate = True
+                        break
+
+            if is_duplicate:
+                continue  # Skip - already shown as active detection
+
             # Build description: prefer stored description, fallback to color+class
             desc = parked.get("description", "")
             if not desc:
@@ -756,10 +772,26 @@ class EventDetector:
                 "description": desc,
                 "confidence": 0.9,
                 "status": "parked",
+                "bbox": parked_bbox,
             })
+            if parked_bbox:
+                used_bboxes.append(parked_bbox)
 
-        # Stopped vehicles - use stored description if available
+        # Stopped vehicles - skip if already covered by another detection
         for sid, stopped in self._stopped_vehicles.items():
+            stopped_bbox = stopped.get("bbox")
+
+            # Check if this stopped vehicle overlaps with any existing detection
+            is_duplicate = False
+            if stopped_bbox:
+                for used_bbox in used_bboxes:
+                    if iou(stopped_bbox, used_bbox) > 0.1:
+                        is_duplicate = True
+                        break
+
+            if is_duplicate:
+                continue
+
             desc = stopped.get("description", "")
             if not desc:
                 color = stopped.get("color", "")
@@ -773,6 +805,9 @@ class EventDetector:
                 "description": desc,
                 "confidence": 0.9,
                 "status": "stopped",
+                "bbox": stopped_bbox,
             })
+            if stopped_bbox:
+                used_bboxes.append(stopped_bbox)
 
         return detections
