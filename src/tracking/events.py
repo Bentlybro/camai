@@ -120,7 +120,7 @@ class EventDetector:
         # Time-based cooldowns for moving objects
         self._vehicle_detected_cooldown = 10.0  # Seconds between vehicle_detected
         self._last_vehicle_detected = 0
-        self._person_detected_cooldown = 30.0  # Seconds between person_detected
+        self._person_detected_cooldown = 5.0  # Seconds between person_detected
         self._last_person_detected = 0
 
         # Global rate limiting
