@@ -48,6 +48,9 @@ class PTZController:
         self._detection_threshold = 3  # Frames required before tracking starts
         self._ir_light_on = False
         self._night_mode_on = False
+        # Camera movement tracking for parking system
+        self._last_movement_time = 0  # When camera last moved (for parking system)
+        self._camera_settle_time = 5.0  # Seconds to wait after camera stops before trusting positions
 
     def connect(self) -> bool:
         """Connect to camera via ONVIF."""
@@ -188,6 +191,7 @@ class PTZController:
             self._ptz_service.ContinuousMove(request)
             self._is_home = False
             self._is_moving = True
+            self._last_movement_time = time.time()  # Track for parking system
         except Exception as e:
             logger.error(f"PTZ move error: {e}")
 
@@ -228,6 +232,7 @@ class PTZController:
             request.ProfileToken = self._profile_token
             self._ptz_service.GotoHomePosition(request)
             self._is_home = True
+            self._last_movement_time = time.time()  # Track for parking system
             logger.info("PTZ going to home position")
             return True
         except Exception as e:
@@ -264,6 +269,7 @@ class PTZController:
             request.PresetToken = preset_token
             self._ptz_service.GotoPreset(request)
             self._is_home = (preset_token == "1")
+            self._last_movement_time = time.time()  # Track for parking system
             logger.info(f"PTZ going to preset: {preset_token}")
             return True
         except Exception as e:
@@ -308,6 +314,26 @@ class PTZController:
     def is_connected(self) -> bool:
         """Check if PTZ is connected."""
         return self._connected
+
+    @property
+    def last_movement_time(self) -> float:
+        """Get timestamp of last camera movement."""
+        return self._last_movement_time
+
+    def camera_recently_moved(self, within_seconds: float = None) -> bool:
+        """
+        Check if camera moved recently.
+        Used by parking system to avoid false "vehicle left" events.
+        """
+        if within_seconds is None:
+            within_seconds = self._camera_settle_time
+        return time.time() - self._last_movement_time < within_seconds
+
+    def camera_is_settled(self) -> bool:
+        """
+        Check if camera has been stable long enough to trust object positions.
+        """
+        return not self._is_moving and not self.camera_recently_moved()
 
     def track_person(self, detections: list, frame_width: int, frame_height: int):
         """

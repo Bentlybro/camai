@@ -128,6 +128,8 @@ def main():
                 log.info("PTZ connected - auto-tracking enabled")
             else:
                 log.info("PTZ connected - manual control only")
+            # Connect PTZ to event detector for camera movement awareness
+            events.set_ptz(ptz)
         else:
             log.warning("PTZ connection failed")
             ptz = None

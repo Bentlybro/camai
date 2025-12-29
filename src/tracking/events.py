@@ -138,9 +138,82 @@ class EventDetector:
         self._repeated_detection_threshold = 2  # 2 detections at same spot = parked
         self._repeated_detection_window = 120.0  # Within 2 minutes
 
+        # PTZ camera reference for movement detection
+        self._ptz = None
+        self._last_camera_move_handled = 0  # Track when we last handled camera movement
+        self._camera_settle_rescan_done = False  # Track if we've rescanned after camera settled
+
+    def set_ptz(self, ptz_controller):
+        """Set PTZ controller reference for camera movement detection."""
+        self._ptz = ptz_controller
+
     def on_event(self, callback: Callable[[Event], None]):
         """Register event callback."""
         self._callbacks.append(callback)
+
+    def _camera_recently_moved(self) -> bool:
+        """Check if PTZ camera recently moved (affects parking detection)."""
+        if self._ptz is None:
+            return False
+        return self._ptz.camera_recently_moved()
+
+    def _handle_camera_movement(self, vehicle_detections: list):
+        """
+        Handle camera movement - extend timeouts and prepare for rescan.
+        Called when camera has recently moved.
+        """
+        now = time.time()
+
+        # Only handle once per movement event
+        if self._ptz and self._ptz.last_movement_time <= self._last_camera_move_handled:
+            return
+
+        self._last_camera_move_handled = now
+        self._camera_settle_rescan_done = False
+
+        # Extend last_seen time for all parked/stopped vehicles to prevent false "left" events
+        for pid, parked in self._parked_vehicles.items():
+            parked["last_seen"] = now
+        for sid, stopped in self._stopped_vehicles.items():
+            stopped["last_seen"] = now
+
+        logger.info("Camera moved - extending parked vehicle timeouts")
+
+    def _rescan_after_camera_settles(self, vehicle_detections: list):
+        """
+        After camera settles from movement, re-register visible vehicles as parked.
+        This prevents false "vehicle left" events when camera view changes.
+        """
+        if self._camera_settle_rescan_done:
+            return
+
+        if self._ptz and not self._ptz.camera_is_settled():
+            return  # Camera still moving or recently moved
+
+        self._camera_settle_rescan_done = True
+        now = time.time()
+
+        # Clear old parking data since positions are now invalid
+        old_parked_count = len(self._parked_vehicles)
+        old_stopped_count = len(self._stopped_vehicles)
+        self._parked_vehicles.clear()
+        self._stopped_vehicles.clear()
+
+        # Re-register all currently visible vehicles as parked
+        for det in vehicle_detections:
+            if det.class_name in ("car", "truck"):
+                pid = self._get_position_id(det.bbox)
+                self._parked_vehicles[pid] = {
+                    "bbox": det.bbox,
+                    "first_seen": now,
+                    "last_seen": now,
+                    "class": det.class_name,
+                    "signature": det.signature,
+                    "color": det.color,
+                }
+
+        logger.info(f"Camera settled - re-registered {len(self._parked_vehicles)} vehicles "
+                   f"(was: {old_parked_count} parked, {old_stopped_count} stopped)")
 
     def _update_position_history(self, obj: TrackedObject, bbox: tuple):
         """Update position history for loitering detection."""
@@ -327,6 +400,25 @@ class EventDetector:
         """Update the parking detection system and return any parking-related events."""
         events = []
         now = time.time()
+
+        # === PTZ CAMERA MOVEMENT HANDLING ===
+        # If camera recently moved, extend timeouts to prevent false "left" events
+        if self._camera_recently_moved():
+            self._handle_camera_movement(vehicle_detections)
+            # Don't process "vehicle left" events while camera is moving
+            # Just update last_seen for any matched vehicles and return
+            for det in vehicle_detections:
+                if det.class_name in ("car", "truck"):
+                    # Try to match with existing parked/stopped vehicles by signature if available
+                    for pid, parked in self._parked_vehicles.items():
+                        if det.signature and parked.get("signature") == det.signature:
+                            parked["last_seen"] = now
+                            parked["bbox"] = det.bbox
+                            break
+            return events
+
+        # After camera settles, rescan and re-register vehicles
+        self._rescan_after_camera_settles(vehicle_detections)
 
         # Startup scan: register existing vehicles as parked after delay
         if not self._startup_scan_done and now - self._startup_time > self._startup_scan_delay:
