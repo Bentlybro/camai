@@ -29,30 +29,17 @@
         <!-- Dashboard Page -->
         <div id="page-dashboard" class="page active">
             <div class="dashboard-grid">
-                <!-- Main Stream with Detection List -->
-                <div class="stream-with-detections">
-                    <div class="card stream-card" id="stream-card">
-                        <div class="card-header">
-                            <h3>Live View</h3>
-                            <div class="header-actions">
-                                <span class="badge" id="fps-badge">-- FPS</span>
-                                <button class="btn-icon" id="btn-fullscreen" title="Fullscreen">&#x26F6;</button>
-                            </div>
-                        </div>
-                        <div class="stream-container">
-                            <img src="/stream" alt="Live Stream" id="main-stream">
+                <!-- Main Stream -->
+                <div class="card stream-card main-stream" id="stream-card">
+                    <div class="card-header">
+                        <h3>Live View</h3>
+                        <div class="header-actions">
+                            <span class="badge" id="fps-badge">-- FPS</span>
+                            <button class="btn-icon" id="btn-fullscreen" title="Fullscreen">&#x26F6;</button>
                         </div>
                     </div>
-
-                    <!-- Live Detections Panel -->
-                    <div class="card detections-card">
-                        <div class="card-header">
-                            <h3>Currently Seeing</h3>
-                            <span class="detection-count" id="detection-count">0</span>
-                        </div>
-                        <div class="detections-list" id="live-detections">
-                            <div class="detection-empty">No objects detected</div>
-                        </div>
+                    <div class="stream-container">
+                        <img src="/stream" alt="Live Stream" id="main-stream">
                     </div>
                 </div>
 
@@ -82,6 +69,17 @@
                             <span class="stat-value" id="stat-uptime">--</span>
                             <span class="stat-label">Uptime</span>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Live Detections -->
+                <div class="card detections-card">
+                    <div class="card-header">
+                        <h3>Live Detections</h3>
+                        <span class="detection-count" id="detection-count">0</span>
+                    </div>
+                    <div class="detections-list" id="live-detections">
+                        <div class="detection-empty">No objects detected</div>
                     </div>
                 </div>
 

@@ -355,9 +355,14 @@ class CAMAIDashboard {
         try {
             const response = await fetch('/api/stats/detections');
             const data = await response.json();
+            // Debug: log first response
+            if (!this._detectionsLogged) {
+                console.log('Detections API response:', data);
+                this._detectionsLogged = true;
+            }
             this.renderDetections(data.detections || []);
         } catch (e) {
-            // Silently fail - detections are non-critical
+            console.error('Detections fetch error:', e);
         }
     }
 

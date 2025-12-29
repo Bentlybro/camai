@@ -141,8 +141,9 @@ class EventDetector:
         # PTZ camera reference for movement detection
         self._ptz = None
         self._last_camera_move_handled = 0  # Track when we last handled camera movement
-        self._camera_settle_rescan_done = False  # Track if we've rescanned after camera settled
+        self._camera_settle_rescan_done = True  # Start True - only set False when camera ACTUALLY moves
         self._camera_move_logged = False  # Only log once per movement session
+        self._camera_has_moved = False  # Track if camera has ever moved since startup
 
     def set_ptz(self, ptz_controller):
         """Set PTZ controller reference for camera movement detection."""
@@ -165,7 +166,8 @@ class EventDetector:
         """
         now = time.time()
 
-        self._camera_settle_rescan_done = False
+        self._camera_settle_rescan_done = False  # Need to rescan when camera settles
+        self._camera_has_moved = True  # Mark that camera has moved at least once
 
         # Extend last_seen time for all parked/stopped vehicles to prevent false "left" events
         for pid, parked in self._parked_vehicles.items():
@@ -183,6 +185,10 @@ class EventDetector:
         After camera settles from movement, re-register visible vehicles as parked.
         This prevents false "vehicle left" events when camera view changes.
         """
+        # Only run if camera has actually moved (not at startup)
+        if not self._camera_has_moved:
+            return
+
         if self._camera_settle_rescan_done:
             return
 
@@ -341,24 +347,38 @@ class EventDetector:
         # Check parked vehicles first
         for pid, parked in list(self._parked_vehicles.items()):
             overlap = iou(det.bbox, parked["bbox"])
-            # Match by IoU OR by signature (for when detection box shifts)
+            # Match by IoU, signature, or color
             sig_match = det.signature and parked.get("signature") and det.signature == parked["signature"]
-            if overlap >= self._parked_iou_threshold or (sig_match and overlap >= 0.1):
+            color_match = det.color and parked.get("color") and det.color == parked["color"]
+
+            # Very lenient matching - any overlap with matching color, or decent IoU
+            if overlap >= 0.15 or sig_match or (color_match and overlap >= 0.05):
                 parked["last_seen"] = now
-                parked["bbox"] = det.bbox  # Update position (slight drift ok)
+                parked["bbox"] = det.bbox  # Update position
+                # Update classification info
                 if det.signature and not parked.get("signature"):
                     parked["signature"] = det.signature
+                if det.color and not parked.get("color"):
+                    parked["color"] = det.color
+                if det.description:
+                    parked["description"] = det.description
                 return True
 
         # Check stopped vehicles
         for sid, stopped in list(self._stopped_vehicles.items()):
             overlap = iou(det.bbox, stopped["bbox"])
             sig_match = det.signature and stopped.get("signature") and det.signature == stopped["signature"]
-            if overlap >= self._parked_iou_threshold or (sig_match and overlap >= 0.1):
+            color_match = det.color and stopped.get("color") and det.color == stopped["color"]
+
+            if overlap >= 0.15 or sig_match or (color_match and overlap >= 0.05):
                 stopped["last_seen"] = now
                 stopped["bbox"] = det.bbox
                 if det.signature and not stopped.get("signature"):
                     stopped["signature"] = det.signature
+                if det.color and not stopped.get("color"):
+                    stopped["color"] = det.color
+                if det.description:
+                    stopped["description"] = det.description
                 return True
 
         return False

@@ -264,15 +264,20 @@ async def get_alltime_stats():
 async def get_current_detections():
     """Get currently visible/tracked objects in real-time."""
     if not _state:
-        return {"detections": []}
+        return {"detections": [], "debug": "no state"}
 
     events_tracker = _state.get("events")
     if not events_tracker:
-        return {"detections": []}
+        return {"detections": [], "debug": "no events tracker"}
 
     try:
         detections = events_tracker.get_current_detections()
-        return {"detections": detections}
+        # Include debug info
+        return {
+            "detections": detections,
+            "tracked_count": events_tracker.tracked_count,
+            "parking_stats": events_tracker.parking_stats,
+        }
     except Exception as e:
         logger.warning(f"Failed to get current detections: {e}")
-        return {"detections": []}
+        return {"detections": [], "debug": str(e)}
