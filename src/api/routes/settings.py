@@ -1,6 +1,6 @@
 """Settings API routes."""
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
 from ..models import (
     DetectionSettings, PTZSettings, PTZConnectionSettings,
@@ -8,6 +8,7 @@ from ..models import (
     NotificationSettings, DiscordSettings, MQTTSettings
 )
 from config import load_user_settings, save_user_settings
+from auth.dependencies import get_current_user, require_admin, CurrentUser
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -21,8 +22,8 @@ def set_state(state: dict):
 
 
 @router.get("")
-async def get_settings():
-    """Get current settings."""
+async def get_settings(user: CurrentUser = Depends(get_current_user)):
+    """Get current settings (authenticated users)."""
     cfg = _state["config"]
     if not cfg:
         raise HTTPException(status_code=503, detail="Config not loaded")
@@ -68,8 +69,8 @@ async def get_settings():
 
 
 @router.post("/detection")
-async def update_detection(settings: DetectionSettings):
-    """Update detection settings."""
+async def update_detection(settings: DetectionSettings, admin: CurrentUser = Depends(require_admin)):
+    """Update detection settings (admin only)."""
     cfg = _state["config"]
     detector = _state["detector"]
 
@@ -94,8 +95,8 @@ async def update_detection(settings: DetectionSettings):
 
 
 @router.post("/ptz")
-async def update_ptz(settings: PTZSettings):
-    """Update PTZ tracking settings."""
+async def update_ptz(settings: PTZSettings, admin: CurrentUser = Depends(require_admin)):
+    """Update PTZ tracking settings (admin only)."""
     cfg = _state["config"]
     ptz = _state["ptz"]
 
@@ -130,8 +131,8 @@ async def update_ptz(settings: PTZSettings):
 
 
 @router.post("/ptz/connection")
-async def update_ptz_connection(settings: PTZConnectionSettings):
-    """Update PTZ connection settings (requires restart to reconnect)."""
+async def update_ptz_connection(settings: PTZConnectionSettings, admin: CurrentUser = Depends(require_admin)):
+    """Update PTZ connection settings (admin only, requires restart to reconnect)."""
     cfg = _state["config"]
 
     if cfg:
@@ -157,8 +158,8 @@ async def update_ptz_connection(settings: PTZConnectionSettings):
 
 
 @router.post("/pose")
-async def update_pose(settings: PoseSettings):
-    """Update pose settings - loads model dynamically if needed."""
+async def update_pose(settings: PoseSettings, admin: CurrentUser = Depends(require_admin)):
+    """Update pose settings (admin only) - loads model dynamically if needed."""
     cfg = _state["config"]
     pose = _state.get("pose")
 
@@ -194,8 +195,8 @@ async def update_pose(settings: PoseSettings):
 
 
 @router.post("/classifier")
-async def update_classifier(settings: ClassifierSettings):
-    """Update classifier settings - loads model dynamically if needed."""
+async def update_classifier(settings: ClassifierSettings, admin: CurrentUser = Depends(require_admin)):
+    """Update classifier settings (admin only) - loads model dynamically if needed."""
     cfg = _state["config"]
     classifier = _state.get("classifier")
 
@@ -230,8 +231,8 @@ async def update_classifier(settings: ClassifierSettings):
 
 
 @router.post("/display")
-async def update_display(settings: DisplaySettings):
-    """Update display/detection toggle settings."""
+async def update_display(settings: DisplaySettings, admin: CurrentUser = Depends(require_admin)):
+    """Update display/detection toggle settings (admin only)."""
     cfg = _state["config"]
 
     if cfg:
@@ -257,8 +258,8 @@ async def update_display(settings: DisplaySettings):
 
 
 @router.post("/stream")
-async def update_stream(settings: StreamSettings):
-    """Update stream/resolution settings and restart capture."""
+async def update_stream(settings: StreamSettings, admin: CurrentUser = Depends(require_admin)):
+    """Update stream/resolution settings (admin only) and restart capture."""
     cfg = _state["config"]
     capture = _state["capture"]
 
@@ -285,8 +286,8 @@ async def update_stream(settings: StreamSettings):
 
 
 @router.get("/notifications")
-async def get_notifications():
-    """Get current notification settings."""
+async def get_notifications(user: CurrentUser = Depends(get_current_user)):
+    """Get current notification settings (authenticated)."""
     cfg = _state["config"]
     if not cfg:
         raise HTTPException(status_code=503, detail="Config not loaded")
@@ -307,8 +308,8 @@ async def get_notifications():
 
 
 @router.post("/notifications")
-async def update_notifications(settings: NotificationSettings):
-    """Update notification settings."""
+async def update_notifications(settings: NotificationSettings, admin: CurrentUser = Depends(require_admin)):
+    """Update notification settings (admin only)."""
     cfg = _state["config"]
     notifier = _state.get("notifier")
 
@@ -361,8 +362,8 @@ async def update_notifications(settings: NotificationSettings):
 
 
 @router.post("/notifications/discord")
-async def update_discord(settings: DiscordSettings):
-    """Update Discord notification settings."""
+async def update_discord(settings: DiscordSettings, admin: CurrentUser = Depends(require_admin)):
+    """Update Discord notification settings (admin only)."""
     cfg = _state["config"]
     notifier = _state.get("notifier")
 
@@ -395,8 +396,8 @@ async def update_discord(settings: DiscordSettings):
 
 
 @router.post("/notifications/mqtt")
-async def update_mqtt(settings: MQTTSettings):
-    """Update MQTT notification settings."""
+async def update_mqtt(settings: MQTTSettings, admin: CurrentUser = Depends(require_admin)):
+    """Update MQTT notification settings (admin only)."""
     cfg = _state["config"]
     notifier = _state.get("notifier")
 

@@ -1,8 +1,10 @@
 """Notification API routes."""
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
+
+from auth.dependencies import get_current_user, require_admin, CurrentUser
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +39,9 @@ class TestNotificationRequest(BaseModel):
 
 
 @router.post("/register")
-async def register_device(request: RegisterTokenRequest):
+async def register_device(request: RegisterTokenRequest, user: CurrentUser = Depends(get_current_user)):
     """
-    Register a device for push notifications.
+    Register a device for push notifications (authenticated).
 
     The client should call this with their FCM token after initializing Firebase.
     """
@@ -66,8 +68,8 @@ async def register_device(request: RegisterTokenRequest):
 
 
 @router.post("/unregister")
-async def unregister_device(request: UnregisterTokenRequest):
-    """Unregister a device from push notifications."""
+async def unregister_device(request: UnregisterTokenRequest, user: CurrentUser = Depends(get_current_user)):
+    """Unregister a device from push notifications (authenticated)."""
     firebase = _state.get("firebase")
     if not firebase:
         raise HTTPException(status_code=503, detail="Firebase not initialized")
@@ -81,8 +83,8 @@ async def unregister_device(request: UnregisterTokenRequest):
 
 
 @router.get("/devices")
-async def get_registered_devices():
-    """Get list of registered devices."""
+async def get_registered_devices(admin: CurrentUser = Depends(require_admin)):
+    """Get list of registered devices (admin only)."""
     firebase = _state.get("firebase")
     if not firebase:
         return {"devices": [], "firebase_initialized": False}
@@ -95,8 +97,8 @@ async def get_registered_devices():
 
 
 @router.post("/test")
-async def send_test_notification(request: TestNotificationRequest):
-    """Send a test notification to all registered devices."""
+async def send_test_notification(request: TestNotificationRequest, admin: CurrentUser = Depends(require_admin)):
+    """Send a test notification to all registered devices (admin only)."""
     firebase = _state.get("firebase")
     if not firebase:
         raise HTTPException(status_code=503, detail="Firebase not initialized")
@@ -119,8 +121,8 @@ async def send_test_notification(request: TestNotificationRequest):
 
 
 @router.get("/status")
-async def get_notification_status():
-    """Get Firebase notification service status."""
+async def get_notification_status(user: CurrentUser = Depends(get_current_user)):
+    """Get Firebase notification service status (authenticated)."""
     firebase = _state.get("firebase")
 
     if not firebase:

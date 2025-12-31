@@ -1,6 +1,8 @@
 """Video stream API routes."""
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
+
+from auth.dependencies import require_stream_token, CurrentUser
 
 router = APIRouter(tags=["streams"])
 
@@ -37,8 +39,8 @@ def generate_clean_mjpeg():
 
 
 @router.get("/stream")
-async def video_stream():
-    """Main video stream."""
+async def video_stream(user: CurrentUser = Depends(require_stream_token)):
+    """Main video stream (requires stream token via ?token=xxx)."""
     return StreamingResponse(
         generate_mjpeg(),
         media_type="multipart/x-mixed-replace; boundary=frame"
@@ -46,8 +48,8 @@ async def video_stream():
 
 
 @router.get("/clean-stream")
-async def clean_video_stream():
-    """Clean video stream without AI overlays."""
+async def clean_video_stream(user: CurrentUser = Depends(require_stream_token)):
+    """Clean video stream without AI overlays (requires stream token via ?token=xxx)."""
     return StreamingResponse(
         generate_clean_mjpeg(),
         media_type="multipart/x-mixed-replace; boundary=frame"

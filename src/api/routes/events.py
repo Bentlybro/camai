@@ -1,10 +1,11 @@
 """Events and snapshots API routes."""
 import logging
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import FileResponse
 
 from database import get_database
+from auth.dependencies import get_current_user, CurrentUser
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["events"])
@@ -22,9 +23,10 @@ async def get_events(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     event_type: str = None,
-    since: float = None
+    since: float = None,
+    user: CurrentUser = Depends(get_current_user)
 ):
-    """Get events from database with optional filtering."""
+    """Get events from database with optional filtering (authenticated)."""
     try:
         db = get_database()
         events = db.get_events(limit=limit, offset=offset, event_type=event_type, since=since)
@@ -36,8 +38,8 @@ async def get_events(
 
 
 @router.get("/api/events/count")
-async def get_event_count(since: float = None):
-    """Get total event count."""
+async def get_event_count(since: float = None, user: CurrentUser = Depends(get_current_user)):
+    """Get total event count (authenticated)."""
     try:
         db = get_database()
         count = db.get_event_count(since=since)
@@ -48,8 +50,8 @@ async def get_event_count(since: float = None):
 
 
 @router.get("/api/snapshots")
-async def list_snapshots():
-    """List saved snapshots."""
+async def list_snapshots(user: CurrentUser = Depends(get_current_user)):
+    """List saved snapshots (authenticated)."""
     cfg = _state["config"]
     if not cfg:
         return []
@@ -70,8 +72,8 @@ async def list_snapshots():
 
 
 @router.get("/api/snapshots/{filename}")
-async def get_snapshot(filename: str):
-    """Get a specific snapshot."""
+async def get_snapshot(filename: str, user: CurrentUser = Depends(get_current_user)):
+    """Get a specific snapshot (authenticated)."""
     cfg = _state["config"]
     if not cfg:
         raise HTTPException(status_code=503, detail="Config not loaded")

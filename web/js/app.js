@@ -1,5 +1,5 @@
 // CAMAI Dashboard JavaScript
-// Version: 2024-12-31-v2
+// Version: 2024-12-31-v3 (with authentication)
 
 class CAMAIDashboard {
     constructor() {
@@ -9,10 +9,39 @@ class CAMAIDashboard {
         this.events = [];  // Store events for modal access
         this.currentFilter = 'all';
 
+        // Authentication state
+        this.accessToken = null;
+        this.refreshToken = null;
+        this.streamToken = null;
+        this.streamTokenExpiry = null;
+        this.user = null;
+        this.tokenRefreshInterval = null;
+
         this.init();
     }
 
-    init() {
+    async init() {
+        // Check for stored tokens first
+        this.loadTokens();
+
+        // Check if authenticated
+        if (!this.accessToken) {
+            this.showLoginModal();
+            return;
+        }
+
+        // Validate token and get user info
+        const valid = await this.validateToken();
+        if (!valid) {
+            this.showLoginModal();
+            return;
+        }
+
+        // Initialize dashboard
+        this.initDashboard();
+    }
+
+    initDashboard() {
         this.setupNavigation();
         this.setupWebSocket();
         this.setupControls();
@@ -21,6 +50,7 @@ class CAMAIDashboard {
         this.setupEventFilter();
         this.setupFullscreen();
         this.setupNotificationControls();
+        this.setupAuthUI();
         this.loadSettings();
         this.loadEvents();
         this.loadSnapshots();
@@ -28,6 +58,372 @@ class CAMAIDashboard {
         this.startDetectionsPolling();
         this.checkPTZStatus();
         this.setupRecordingsControls();
+        this.updateStreamWithToken();
+        this.startTokenRefresh();
+    }
+
+    // ==================== AUTHENTICATION ====================
+
+    loadTokens() {
+        this.accessToken = localStorage.getItem('camai_access_token');
+        this.refreshToken = localStorage.getItem('camai_refresh_token');
+        const userJson = localStorage.getItem('camai_user');
+        if (userJson) {
+            try {
+                this.user = JSON.parse(userJson);
+            } catch (e) {
+                this.user = null;
+            }
+        }
+    }
+
+    saveTokens(accessToken, refreshToken, user) {
+        this.accessToken = accessToken;
+        this.refreshToken = refreshToken;
+        this.user = user;
+        localStorage.setItem('camai_access_token', accessToken);
+        localStorage.setItem('camai_refresh_token', refreshToken);
+        localStorage.setItem('camai_user', JSON.stringify(user));
+    }
+
+    clearTokens() {
+        this.accessToken = null;
+        this.refreshToken = null;
+        this.streamToken = null;
+        this.user = null;
+        localStorage.removeItem('camai_access_token');
+        localStorage.removeItem('camai_refresh_token');
+        localStorage.removeItem('camai_user');
+    }
+
+    async validateToken() {
+        if (!this.accessToken) return false;
+
+        try {
+            const response = await fetch('/api/auth/me', {
+                headers: { 'Authorization': `Bearer ${this.accessToken}` }
+            });
+
+            if (response.ok) {
+                this.user = await response.json();
+                localStorage.setItem('camai_user', JSON.stringify(this.user));
+                return true;
+            }
+
+            // Try to refresh if access token expired
+            if (response.status === 401 && this.refreshToken) {
+                return await this.refreshAccessToken();
+            }
+
+            return false;
+        } catch (e) {
+            console.error('Token validation failed:', e);
+            return false;
+        }
+    }
+
+    async refreshAccessToken() {
+        if (!this.refreshToken) return false;
+
+        try {
+            const response = await fetch('/api/auth/refresh', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refresh_token: this.refreshToken })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                this.accessToken = data.access_token;
+                localStorage.setItem('camai_access_token', data.access_token);
+                return true;
+            }
+
+            return false;
+        } catch (e) {
+            console.error('Token refresh failed:', e);
+            return false;
+        }
+    }
+
+    startTokenRefresh() {
+        // Refresh access token every 25 minutes (before 30 min expiry)
+        this.tokenRefreshInterval = setInterval(async () => {
+            await this.refreshAccessToken();
+        }, 25 * 60 * 1000);
+
+        // Refresh stream token every 4 minutes (before 5 min expiry)
+        setInterval(async () => {
+            await this.refreshStreamToken();
+        }, 4 * 60 * 1000);
+    }
+
+    async refreshStreamToken() {
+        try {
+            const response = await this.authFetch('/api/auth/stream-token');
+            if (response.ok) {
+                const data = await response.json();
+                this.streamToken = data.token;
+                this.streamTokenExpiry = Date.now() + (data.expires_in * 1000);
+                this.updateStreamWithToken();
+            }
+        } catch (e) {
+            console.error('Failed to refresh stream token:', e);
+        }
+    }
+
+    async getStreamToken() {
+        // If we have a valid stream token, use it
+        if (this.streamToken && this.streamTokenExpiry && Date.now() < this.streamTokenExpiry - 30000) {
+            return this.streamToken;
+        }
+
+        // Otherwise get a new one
+        await this.refreshStreamToken();
+        return this.streamToken;
+    }
+
+    updateStreamWithToken() {
+        const streamImg = document.getElementById('main-stream');
+        if (streamImg && this.streamToken) {
+            streamImg.src = `/stream?token=${this.streamToken}`;
+        }
+    }
+
+    // Wrapper for fetch with auth headers
+    async authFetch(url, options = {}) {
+        if (!options.headers) options.headers = {};
+        if (this.accessToken) {
+            options.headers['Authorization'] = `Bearer ${this.accessToken}`;
+        }
+
+        const response = await fetch(url, options);
+
+        // If unauthorized, try to refresh token
+        if (response.status === 401 && this.refreshToken) {
+            const refreshed = await this.refreshAccessToken();
+            if (refreshed) {
+                options.headers['Authorization'] = `Bearer ${this.accessToken}`;
+                return fetch(url, options);
+            }
+        }
+
+        return response;
+    }
+
+    showLoginModal() {
+        // Create login modal if not exists
+        let modal = document.getElementById('login-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'login-modal';
+            modal.className = 'modal active';
+            modal.innerHTML = `
+                <div class="modal-content login-modal-content">
+                    <div class="modal-header">
+                        <h3>CAMAI Login</h3>
+                    </div>
+                    <div class="modal-body">
+                        <form id="login-form">
+                            <div class="form-group">
+                                <label for="login-username">Username</label>
+                                <input type="text" id="login-username" class="form-input" required autocomplete="username">
+                            </div>
+                            <div class="form-group">
+                                <label for="login-password">Password</label>
+                                <input type="password" id="login-password" class="form-input" required autocomplete="current-password">
+                            </div>
+                            <div id="login-error" class="form-error" style="display:none;"></div>
+                            <button type="submit" class="btn btn-primary btn-full">Login</button>
+                        </form>
+                        <div class="login-register">
+                            <p>Don't have an account? <a href="#" id="show-register">Register</a></p>
+                        </div>
+                        <form id="register-form" style="display:none;">
+                            <div class="form-group">
+                                <label for="reg-username">Username</label>
+                                <input type="text" id="reg-username" class="form-input" required autocomplete="username">
+                            </div>
+                            <div class="form-group">
+                                <label for="reg-password">Password</label>
+                                <input type="password" id="reg-password" class="form-input" required autocomplete="new-password">
+                            </div>
+                            <div class="form-group">
+                                <label for="reg-password2">Confirm Password</label>
+                                <input type="password" id="reg-password2" class="form-input" required autocomplete="new-password">
+                            </div>
+                            <div id="register-error" class="form-error" style="display:none;"></div>
+                            <div id="register-success" class="form-success" style="display:none;"></div>
+                            <button type="submit" class="btn btn-primary btn-full">Register</button>
+                            <p style="margin-top:1rem;"><a href="#" id="show-login">Back to Login</a></p>
+                        </form>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            // Setup form handlers
+            document.getElementById('login-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.handleLogin();
+            });
+
+            document.getElementById('register-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.handleRegister();
+            });
+
+            document.getElementById('show-register').addEventListener('click', (e) => {
+                e.preventDefault();
+                document.getElementById('login-form').style.display = 'none';
+                document.getElementById('register-form').style.display = 'block';
+                document.querySelector('.login-register').style.display = 'none';
+            });
+
+            document.getElementById('show-login').addEventListener('click', (e) => {
+                e.preventDefault();
+                document.getElementById('login-form').style.display = 'block';
+                document.getElementById('register-form').style.display = 'none';
+                document.querySelector('.login-register').style.display = 'block';
+            });
+        }
+
+        modal.classList.add('active');
+    }
+
+    hideLoginModal() {
+        const modal = document.getElementById('login-modal');
+        if (modal) {
+            modal.classList.remove('active');
+        }
+    }
+
+    async handleLogin() {
+        const username = document.getElementById('login-username').value;
+        const password = document.getElementById('login-password').value;
+        const errorDiv = document.getElementById('login-error');
+
+        try {
+            const response = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                this.saveTokens(data.access_token, data.refresh_token, data.user);
+                this.hideLoginModal();
+                this.initDashboard();
+            } else {
+                errorDiv.textContent = data.detail || 'Login failed';
+                errorDiv.style.display = 'block';
+            }
+        } catch (e) {
+            console.error('Login error:', e);
+            errorDiv.textContent = 'Network error. Please try again.';
+            errorDiv.style.display = 'block';
+        }
+    }
+
+    async handleRegister() {
+        const username = document.getElementById('reg-username').value;
+        const password = document.getElementById('reg-password').value;
+        const password2 = document.getElementById('reg-password2').value;
+        const errorDiv = document.getElementById('register-error');
+        const successDiv = document.getElementById('register-success');
+
+        errorDiv.style.display = 'none';
+        successDiv.style.display = 'none';
+
+        if (password !== password2) {
+            errorDiv.textContent = 'Passwords do not match';
+            errorDiv.style.display = 'block';
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                successDiv.textContent = data.message || 'Registration successful! You can now log in.';
+                successDiv.style.display = 'block';
+                // Switch back to login form
+                setTimeout(() => {
+                    document.getElementById('show-login').click();
+                }, 2000);
+            } else {
+                errorDiv.textContent = data.detail || 'Registration failed';
+                errorDiv.style.display = 'block';
+            }
+        } catch (e) {
+            console.error('Registration error:', e);
+            errorDiv.textContent = 'Network error. Please try again.';
+            errorDiv.style.display = 'block';
+        }
+    }
+
+    async logout() {
+        try {
+            await this.authFetch('/api/auth/logout', { method: 'POST' });
+        } catch (e) {
+            console.error('Logout error:', e);
+        }
+
+        this.clearTokens();
+        if (this.tokenRefreshInterval) {
+            clearInterval(this.tokenRefreshInterval);
+        }
+        window.location.reload();
+    }
+
+    setupAuthUI() {
+        // Update nav with user info and logout button
+        const navStatus = document.querySelector('.nav-status');
+        if (navStatus && this.user) {
+            const userInfo = document.createElement('div');
+            userInfo.className = 'nav-user';
+            userInfo.innerHTML = `
+                <span class="user-name">${this.user.username}</span>
+                <span class="user-role badge ${this.user.role === 'admin' ? 'badge-admin' : 'badge-user'}">${this.user.role}</span>
+                <button class="btn-icon btn-logout" title="Logout" onclick="dashboard.logout()">&#x2716;</button>
+            `;
+            navStatus.insertBefore(userInfo, navStatus.firstChild);
+        }
+
+        // Show/hide admin features based on role
+        this.updateAdminFeatures();
+    }
+
+    updateAdminFeatures() {
+        const isAdmin = this.user?.role === 'admin';
+
+        // Hide settings save buttons for non-admins
+        const adminOnlyElements = document.querySelectorAll('.admin-only');
+        adminOnlyElements.forEach(el => {
+            el.style.display = isAdmin ? '' : 'none';
+        });
+
+        // Disable settings inputs for non-admins
+        if (!isAdmin) {
+            // Settings page - disable all inputs except those marked read-only-allowed
+            const settingsPage = document.getElementById('page-settings');
+            if (settingsPage) {
+                const inputs = settingsPage.querySelectorAll('input, select, button');
+                inputs.forEach(input => {
+                    if (!input.classList.contains('readonly-allowed')) {
+                        input.disabled = true;
+                    }
+                });
+            }
+        }
     }
 
     setupRecordingsControls() {
@@ -262,9 +658,12 @@ class CAMAIDashboard {
     }
 
     // WebSocket
-    setupWebSocket() {
+    async setupWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+        // Get stream token for WebSocket auth
+        const token = await this.getStreamToken();
+        const wsUrl = `${protocol}//${window.location.host}/ws?token=${token}`;
 
         try {
             this.ws = new WebSocket(wsUrl);
@@ -337,7 +736,7 @@ class CAMAIDashboard {
 
     async fetchStats() {
         try {
-            const response = await fetch('/api/stats');
+            const response = await this.authFetch('/api/stats');
             const stats = await response.json();
             this.updateStats(stats);
         } catch (e) {
@@ -392,7 +791,7 @@ class CAMAIDashboard {
 
     async fetchDetections() {
         try {
-            const response = await fetch('/api/stats/detections');
+            const response = await this.authFetch('/api/stats/detections');
             const data = await response.json();
             this.renderDetections(data.detections || []);
         } catch (e) {
@@ -522,7 +921,7 @@ class CAMAIDashboard {
 
     async ptzHome() {
         try {
-            await fetch('/api/ptz/home', { method: 'POST' });
+            await this.authFetch('/api/ptz/home', { method: 'POST' });
         } catch (e) {
             console.error('PTZ home failed:', e);
         }
@@ -530,7 +929,7 @@ class CAMAIDashboard {
 
     async loadPTZPresets() {
         try {
-            const response = await fetch('/api/ptz/presets');
+            const response = await this.authFetch('/api/ptz/presets');
             const presets = await response.json();
             this.renderPTZPresets(presets);
         } catch (e) {
@@ -561,7 +960,7 @@ class CAMAIDashboard {
 
         try {
             const url = name ? `/api/ptz/presets?name=${encodeURIComponent(name)}` : '/api/ptz/presets';
-            const response = await fetch(url, { method: 'POST' });
+            const response = await this.authFetch(url, { method: 'POST' });
             const result = await response.json();
             if (result.status === 'ok') {
                 this.loadPTZPresets();
@@ -576,7 +975,7 @@ class CAMAIDashboard {
 
     async ptzGotoPreset(token) {
         try {
-            await fetch(`/api/ptz/presets/${token}/goto`, { method: 'POST' });
+            await this.authFetch(`/api/ptz/presets/${token}/goto`, { method: 'POST' });
             // Update toggle to show auto-tracking is now off
             const toggle = document.getElementById('toggle-ptz');
             if (toggle) toggle.checked = false;
@@ -589,7 +988,7 @@ class CAMAIDashboard {
         if (!confirm('Delete this preset?')) return;
 
         try {
-            const response = await fetch(`/api/ptz/presets/${token}`, { method: 'DELETE' });
+            const response = await this.authFetch(`/api/ptz/presets/${token}`, { method: 'DELETE' });
             const result = await response.json();
             if (result.status === 'ok') {
                 this.loadPTZPresets();
@@ -601,7 +1000,7 @@ class CAMAIDashboard {
 
     async ptzMove(pan, tilt) {
         try {
-            await fetch('/api/ptz/move', {
+            await this.authFetch('/api/ptz/move', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ pan, tilt })
@@ -616,7 +1015,7 @@ class CAMAIDashboard {
 
     async ptzStop() {
         try {
-            await fetch('/api/ptz/stop', { method: 'POST' });
+            await this.authFetch('/api/ptz/stop', { method: 'POST' });
         } catch (e) {
             console.error('PTZ stop failed:', e);
         }
@@ -624,7 +1023,7 @@ class CAMAIDashboard {
 
     async checkPTZStatus() {
         try {
-            const response = await fetch('/api/ptz/status');
+            const response = await this.authFetch('/api/ptz/status');
             const status = await response.json();
 
             const badge = document.getElementById('ptz-status');
@@ -646,7 +1045,7 @@ class CAMAIDashboard {
 
     async loadImagingStatus() {
         try {
-            const response = await fetch('/api/ptz/imaging');
+            const response = await this.authFetch('/api/ptz/imaging');
             const status = await response.json();
 
             // Update button states
@@ -669,7 +1068,7 @@ class CAMAIDashboard {
         const isActive = btn?.classList.contains('active');
 
         try {
-            const response = await fetch(`/api/ptz/light?enabled=${!isActive}`, {
+            const response = await this.authFetch(`/api/ptz/light?enabled=${!isActive}`, {
                 method: 'POST'
             });
             const result = await response.json();
@@ -691,7 +1090,7 @@ class CAMAIDashboard {
         const isActive = btn?.classList.contains('active');
 
         try {
-            const response = await fetch(`/api/ptz/night-mode?enabled=${!isActive}`, {
+            const response = await this.authFetch(`/api/ptz/night-mode?enabled=${!isActive}`, {
                 method: 'POST'
             });
             const result = await response.json();
@@ -722,7 +1121,7 @@ class CAMAIDashboard {
         }
 
         try {
-            const response = await fetch('/api/ptz/reset', {
+            const response = await this.authFetch('/api/ptz/reset', {
                 method: 'POST'
             });
             const result = await response.json();
@@ -839,7 +1238,7 @@ class CAMAIDashboard {
         const password = document.getElementById('setting-ptz-password')?.value || '';
 
         try {
-            const response = await fetch('/api/settings/ptz/connection', {
+            const response = await this.authFetch('/api/settings/ptz/connection', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ host, port, username, password })
@@ -865,7 +1264,7 @@ class CAMAIDashboard {
         const [width, height] = select.value.split('x').map(Number);
 
         try {
-            const response = await fetch('/api/settings/stream', {
+            const response = await this.authFetch('/api/settings/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ width, height, quality: 70 })
@@ -916,7 +1315,7 @@ class CAMAIDashboard {
 
     async updateSetting(category, settings) {
         try {
-            const response = await fetch(`/api/settings/${category}`, {
+            const response = await this.authFetch(`/api/settings/${category}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)
@@ -935,7 +1334,7 @@ class CAMAIDashboard {
     // Load Settings
     async loadSettings() {
         try {
-            const response = await fetch('/api/settings');
+            const response = await this.authFetch('/api/settings');
             const settings = await response.json();
 
             // Dashboard toggles
@@ -1011,7 +1410,7 @@ class CAMAIDashboard {
     // Events
     async loadEvents() {
         try {
-            const response = await fetch('/api/events?limit=50');
+            const response = await this.authFetch('/api/events?limit=50');
             this.events = await response.json();
 
             // Recent events on dashboard
@@ -1094,7 +1493,7 @@ class CAMAIDashboard {
     // Snapshots
     async loadSnapshots() {
         try {
-            const response = await fetch('/api/snapshots');
+            const response = await this.authFetch('/api/snapshots');
             const snapshots = await response.json();
 
             const grid = document.getElementById('snapshots-grid');
@@ -1134,7 +1533,7 @@ class CAMAIDashboard {
 
     async loadNotifications() {
         try {
-            const response = await fetch('/api/settings/notifications');
+            const response = await this.authFetch('/api/settings/notifications');
             const settings = await response.json();
 
             // Discord settings
@@ -1178,7 +1577,7 @@ class CAMAIDashboard {
         };
 
         try {
-            const response = await fetch('/api/settings/notifications', {
+            const response = await this.authFetch('/api/settings/notifications', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)
@@ -1239,7 +1638,7 @@ class CAMAIDashboard {
 
     async loadStatsPage() {
         try {
-            const response = await fetch('/api/stats');
+            const response = await this.authFetch('/api/stats');
             const stats = await response.json();
 
             // Summary cards
@@ -1321,7 +1720,7 @@ class CAMAIDashboard {
 
     async loadSystemStats() {
         try {
-            const response = await fetch('/api/system');
+            const response = await this.authFetch('/api/system');
             const data = await response.json();
             this.updateSystemStats(data);
         } catch (e) {
@@ -1502,7 +1901,7 @@ class CAMAIDashboard {
             let url = '/api/recordings?limit=50';
             if (date) url += `&date=${date}`;
 
-            const res = await fetch(url);
+            const res = await this.authFetch(url);
             const data = await res.json();
 
             if (!data.recordings || data.recordings.length === 0) {
@@ -1545,7 +1944,7 @@ class CAMAIDashboard {
 
     async loadRecordingStats() {
         try {
-            const res = await fetch('/api/recordings/stats');
+            const res = await this.authFetch('/api/recordings/stats');
             const stats = await res.json();
 
             const countEl = document.getElementById('rec-total-count');
@@ -1629,7 +2028,7 @@ class CAMAIDashboard {
         if (!confirm('Are you sure you want to delete this recording?')) return;
 
         try {
-            const res = await fetch(`/api/recordings/${id}`, { method: 'DELETE' });
+            const res = await this.authFetch(`/api/recordings/${id}`, { method: 'DELETE' });
             if (res.ok) {
                 this.closeModal();
                 this.loadRecordings();

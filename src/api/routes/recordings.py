@@ -5,10 +5,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import FileResponse, StreamingResponse
 
 from database import get_database
+from auth.dependencies import get_current_user, require_admin, CurrentUser
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,9 @@ async def get_recordings(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     date: Optional[str] = Query(None, description="Filter by date (YYYY-MM-DD)"),
+    user: CurrentUser = Depends(get_current_user),
 ):
-    """Get list of recordings."""
+    """Get list of recordings (authenticated)."""
     try:
         db = get_database()
         recordings = db.get_recordings(limit=limit, offset=offset, date=date)
@@ -64,8 +66,8 @@ async def get_recordings(
 
 
 @router.get("/debug/{recording_id}")
-async def debug_recording(recording_id: int):
-    """Debug endpoint to see recording path info."""
+async def debug_recording(recording_id: int, admin: CurrentUser = Depends(require_admin)):
+    """Debug endpoint to see recording path info (admin only)."""
     from pathlib import Path
 
     db = get_database()
@@ -119,8 +121,8 @@ async def debug_recording(recording_id: int):
 
 
 @router.get("/dates")
-async def get_recording_dates():
-    """Get list of dates that have recordings."""
+async def get_recording_dates(user: CurrentUser = Depends(get_current_user)):
+    """Get list of dates that have recordings (authenticated)."""
     try:
         db = get_database()
         recordings = db.get_recordings(limit=1000)
@@ -138,8 +140,8 @@ async def get_recording_dates():
 
 
 @router.get("/stats")
-async def get_recording_stats():
-    """Get recording storage statistics."""
+async def get_recording_stats(user: CurrentUser = Depends(get_current_user)):
+    """Get recording storage statistics (authenticated)."""
     try:
         db = get_database()
         stats = db.get_recording_stats()
@@ -166,8 +168,8 @@ async def get_recording_stats():
 
 
 @router.get("/{recording_id}")
-async def get_recording(recording_id: int):
-    """Get a single recording by ID."""
+async def get_recording(recording_id: int, user: CurrentUser = Depends(get_current_user)):
+    """Get a single recording by ID (authenticated)."""
     try:
         db = get_database()
         recording = db.get_recording(recording_id)
@@ -196,8 +198,8 @@ async def get_recording(recording_id: int):
 
 
 @router.get("/{recording_id}/stream")
-async def stream_recording(recording_id: int):
-    """Stream recording video."""
+async def stream_recording(recording_id: int, user: CurrentUser = Depends(get_current_user)):
+    """Stream recording video (authenticated)."""
     try:
         db = get_database()
         recording = db.get_recording(recording_id)
@@ -244,8 +246,8 @@ async def stream_recording(recording_id: int):
 
 
 @router.get("/{recording_id}/download")
-async def download_recording(recording_id: int):
-    """Download recording video file."""
+async def download_recording(recording_id: int, user: CurrentUser = Depends(get_current_user)):
+    """Download recording video file (authenticated)."""
     try:
         db = get_database()
         recording = db.get_recording(recording_id)
@@ -285,8 +287,8 @@ async def download_recording(recording_id: int):
 
 
 @router.get("/{recording_id}/thumbnail")
-async def get_thumbnail(recording_id: int):
-    """Get recording thumbnail."""
+async def get_thumbnail(recording_id: int, user: CurrentUser = Depends(get_current_user)):
+    """Get recording thumbnail (authenticated)."""
     try:
         db = get_database()
         recording = db.get_recording(recording_id)
@@ -313,8 +315,8 @@ async def get_thumbnail(recording_id: int):
 
 
 @router.delete("/{recording_id}")
-async def delete_recording(recording_id: int):
-    """Delete a recording."""
+async def delete_recording(recording_id: int, admin: CurrentUser = Depends(require_admin)):
+    """Delete a recording (admin only)."""
     try:
         db = get_database()
         recording = db.get_recording(recording_id)
@@ -339,8 +341,8 @@ async def delete_recording(recording_id: int):
 
 
 @router.post("/cleanup")
-async def cleanup_recordings():
-    """Manually trigger cleanup of old recordings."""
+async def cleanup_recordings(admin: CurrentUser = Depends(require_admin)):
+    """Manually trigger cleanup of old recordings (admin only)."""
     try:
         recorder = _state.get("recorder")
         if recorder:

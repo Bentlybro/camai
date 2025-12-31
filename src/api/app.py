@@ -241,9 +241,18 @@ async def root():
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket for real-time updates."""
+async def websocket_endpoint(websocket: WebSocket, token: str = None):
+    """WebSocket for real-time updates (requires ?token=xxx)."""
     global _event_loop
+
+    # Authenticate via token query parameter
+    if AUTH_AVAILABLE:
+        from auth.dependencies import get_user_from_ws_token
+        user = await get_user_from_ws_token(token)
+        if not user:
+            await websocket.close(code=4001, reason="Authentication required")
+            return
+        logger.info(f"WebSocket authenticated: {user.username}")
 
     # Capture event loop for broadcasting from other threads
     _event_loop = asyncio.get_event_loop()

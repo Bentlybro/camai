@@ -2,9 +2,10 @@
 import logging
 from datetime import datetime, timedelta
 from collections import defaultdict
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
 from database import get_database
+from auth.dependencies import get_current_user, CurrentUser
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/stats", tags=["stats"])
@@ -56,8 +57,8 @@ def format_uptime(seconds: float) -> str:
 
 
 @router.get("")
-async def get_stats():
-    """Get comprehensive stats for the dashboard."""
+async def get_stats(user: CurrentUser = Depends(get_current_user)):
+    """Get comprehensive stats for the dashboard (authenticated)."""
     if not _state:
         raise HTTPException(status_code=503, detail="State not initialized")
 
@@ -162,8 +163,8 @@ async def get_stats():
 
 
 @router.get("/summary")
-async def get_summary():
-    """Get quick summary stats."""
+async def get_summary(user: CurrentUser = Depends(get_current_user)):
+    """Get quick summary stats (authenticated)."""
     if not _state:
         raise HTTPException(status_code=503, detail="State not initialized")
 
@@ -188,8 +189,8 @@ async def get_summary():
 
 
 @router.get("/history")
-async def get_history(days: int = 7):
-    """Get event history for the past N days."""
+async def get_history(days: int = 7, user: CurrentUser = Depends(get_current_user)):
+    """Get event history for the past N days (authenticated)."""
     if not _state:
         raise HTTPException(status_code=503, detail="State not initialized")
 
@@ -249,8 +250,8 @@ async def get_history(days: int = 7):
 
 
 @router.get("/alltime")
-async def get_alltime_stats():
-    """Get all-time statistics."""
+async def get_alltime_stats(user: CurrentUser = Depends(get_current_user)):
+    """Get all-time statistics (authenticated)."""
     try:
         db = get_database()
         stats = db.get_all_time_stats()
@@ -261,8 +262,8 @@ async def get_alltime_stats():
 
 
 @router.get("/detections")
-async def get_current_detections():
-    """Get currently visible/tracked objects in real-time."""
+async def get_current_detections(user: CurrentUser = Depends(get_current_user)):
+    """Get currently visible/tracked objects in real-time (authenticated)."""
     if not _state:
         return {"detections": [], "debug": "no state"}
 

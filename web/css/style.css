@@ -1838,3 +1838,143 @@ input[type="range"]::-webkit-slider-thumb {
         grid-template-columns: 1fr;
     }
 }
+
+/* ==================== AUTH / LOGIN STYLES ==================== */
+
+/* User info in navbar */
+.nav-user {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-right: 1rem;
+    padding-right: 1rem;
+    border-right: 1px solid var(--border);
+}
+
+.user-name {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.user-role {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+    text-transform: uppercase;
+}
+
+.badge-admin {
+    background: var(--accent);
+    color: var(--bg-primary);
+}
+
+.badge-user {
+    background: var(--border);
+    color: var(--text-secondary);
+}
+
+.btn-logout {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.8rem;
+}
+
+.btn-logout:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+    background: rgba(255, 71, 87, 0.1);
+}
+
+/* Login Modal */
+.login-modal-content {
+    max-width: 400px;
+    margin: 10vh auto;
+}
+
+.login-modal-content .modal-header {
+    text-align: center;
+    justify-content: center;
+}
+
+.login-modal-content .modal-header h3 {
+    font-size: 1.5rem;
+}
+
+.login-modal-content .modal-body {
+    padding: 2rem;
+}
+
+.login-register {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    text-align: center;
+}
+
+.login-register p {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.login-register a,
+#show-login {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.login-register a:hover,
+#show-login:hover {
+    text-decoration: underline;
+}
+
+/* Form error/success messages */
+.form-error {
+    background: rgba(255, 71, 87, 0.15);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+}
+
+.form-success {
+    background: rgba(46, 213, 115, 0.15);
+    border: 1px solid var(--success);
+    color: var(--success);
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+}
+
+/* Full-width button */
+.btn-full {
+    width: 100%;
+    padding: 1rem;
+    font-size: 1rem;
+}
+
+/* Disabled inputs for non-admin */
+input:disabled,
+select:disabled,
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Hide admin-only elements */
+.admin-only {
+    /* Will be shown/hidden via JS */
+}
+
+@media (max-width: 768px) {
+    .nav-user {
+        display: none;
+    }
+}
