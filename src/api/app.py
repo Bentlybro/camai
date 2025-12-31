@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import settings, ptz, events, streams, stats, system, recordings, notifications
+from .routes import settings, ptz, events, streams, stats, system, recordings, notifications, app_update
 from database import get_database
 
 # Import auth module (optional - gracefully handle if not available)
@@ -225,6 +225,7 @@ app.include_router(stats.router)
 app.include_router(system.router)
 app.include_router(recordings.router)
 app.include_router(notifications.router)
+app.include_router(app_update.router)
 
 # Include auth routers if available
 if AUTH_AVAILABLE and auth_router:

@@ -1,6 +1,6 @@
 {
   "name": "camai-mobile",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "CAMAI Mobile App - Remote camera monitoring",
   "module": "index.ts",
   "type": "module",
@@ -10,17 +10,23 @@
     "android": "bun run build && bunx cap sync android && bunx cap open android",
     "cap:sync": "bunx cap sync",
     "cap:open": "bunx cap open android",
-    "cap:run": "bunx cap run android"
+    "cap:run": "bunx cap run android",
+    "update": "bun scripts/build-update.js",
+    "update:patch": "bun scripts/build-update.js patch",
+    "update:minor": "bun scripts/build-update.js minor",
+    "update:major": "bun scripts/build-update.js major"
   },
   "dependencies": {
     "@capacitor/android": "^6.0.0",
     "@capacitor/core": "^6.0.0",
+    "@capacitor/filesystem": "^6.0.4",
     "@capacitor/local-notifications": "^6.1.3",
     "@capacitor/network": "^6.0.0",
     "@capacitor/preferences": "^6.0.0",
     "@capacitor/push-notifications": "^6.0.2",
     "@capacitor/splash-screen": "^6.0.0",
     "@capacitor/status-bar": "^6.0.0",
+    "@capacitor-community/file-opener": "6.0.1",
     "bp-capacitor-background-mode": "^2.0.10"
   },
   "devDependencies": {

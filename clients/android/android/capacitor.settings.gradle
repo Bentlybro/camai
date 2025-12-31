@@ -2,6 +2,9 @@
 include ':capacitor-android'
 project(':capacitor-android').projectDir = new File('../node_modules/@capacitor/android/capacitor')
 
+include ':capacitor-filesystem'
+project(':capacitor-filesystem').projectDir = new File('../node_modules/@capacitor/filesystem/android')
+
 include ':capacitor-local-notifications'
 project(':capacitor-local-notifications').projectDir = new File('../node_modules/@capacitor/local-notifications/android')
 
@@ -19,6 +22,9 @@ project(':capacitor-splash-screen').projectDir = new File('../node_modules/@capa
 
 include ':capacitor-status-bar'
 project(':capacitor-status-bar').projectDir = new File('../node_modules/@capacitor/status-bar/android')
+
+include ':capacitor-community-file-opener'
+project(':capacitor-community-file-opener').projectDir = new File('../node_modules/@capacitor-community/file-opener/android')
 
 include ':bp-capacitor-background-mode'
 project(':bp-capacitor-background-mode').projectDir = new File('../node_modules/bp-capacitor-background-mode/android')

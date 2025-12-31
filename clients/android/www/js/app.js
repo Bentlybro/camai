@@ -1,11 +1,18 @@
 // CAMAI Mobile App
 // Simple vanilla JS app that works in both browser and Capacitor WebView
 
+// App version for OTA updates
+const APP_VERSION = '1.0.1';
+const APP_VERSION_CODE = 10001;
+
 // Import Capacitor plugins when available
 let LocalNotifications = null;
 let PushNotifications = null;
 let BackgroundMode = null;
 let App = null;
+let Filesystem = null;
+let FileOpener = null;
+let Directory = null;
 let camaiAppInstance = null;
 
 // Initialize Capacitor plugins when DOM is ready
@@ -15,6 +22,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     PushNotifications = window.Capacitor.Plugins.PushNotifications;
     BackgroundMode = window.Capacitor.Plugins.BackgroundMode;
     App = window.Capacitor.Plugins.App;
+    Filesystem = window.Capacitor.Plugins.Filesystem;
+    FileOpener = window.Capacitor.Plugins.FileOpener;
+    // Get Directory enum from Capacitor core
+    if (window.Capacitor.Plugins.Filesystem) {
+      Directory = { External: 'EXTERNAL', Documents: 'DOCUMENTS', Data: 'DATA', Cache: 'CACHE' };
+    }
 
     // Request notification permissions (local notifications as fallback)
     if (LocalNotifications) {
@@ -756,6 +769,223 @@ class CamaiApp {
     // Update displays
     document.getElementById('setting-server').textContent = this.serverUrl;
     this.updateUserDisplay();
+
+    // Check for app updates
+    this.checkForUpdate();
+  }
+
+  // ==================== OTA UPDATES ====================
+
+  async checkForUpdate() {
+    if (!this.serverUrl) return;
+
+    try {
+      console.log('Checking for app updates...');
+      const response = await fetch(`${this.serverUrl}/api/app/check/${APP_VERSION}`);
+
+      if (!response.ok) {
+        console.log('Update check failed:', response.status);
+        return;
+      }
+
+      const data = await response.json();
+
+      if (data.update_available) {
+        console.log('Update available:', data.latest_version);
+        this.showUpdatePrompt(data);
+      } else {
+        console.log('App is up to date');
+      }
+    } catch (e) {
+      console.error('Failed to check for updates:', e);
+    }
+  }
+
+  showUpdatePrompt(updateInfo) {
+    // Create and show update modal
+    const modal = document.getElementById('update-modal');
+    if (!modal) {
+      console.error('Update modal not found');
+      return;
+    }
+
+    // Set update info
+    document.getElementById('update-version').textContent = `v${updateInfo.latest_version}`;
+    document.getElementById('update-current').textContent = `Current: v${updateInfo.current_version}`;
+    document.getElementById('update-notes').textContent = updateInfo.release_notes || 'Bug fixes and improvements';
+
+    // Format size
+    const sizeText = updateInfo.apk_size > 0
+      ? `${(updateInfo.apk_size / 1024 / 1024).toFixed(1)} MB`
+      : 'Unknown size';
+    document.getElementById('update-size').textContent = sizeText;
+
+    // Show required badge if mandatory
+    const requiredBadge = document.getElementById('update-required');
+    if (requiredBadge) {
+      requiredBadge.classList.toggle('hidden', !updateInfo.required);
+    }
+
+    // Store update info for download
+    this.pendingUpdate = updateInfo;
+
+    // Show modal
+    modal.classList.remove('hidden');
+  }
+
+  closeUpdateModal() {
+    const modal = document.getElementById('update-modal');
+    if (modal) {
+      modal.classList.add('hidden');
+    }
+    this.pendingUpdate = null;
+  }
+
+  async downloadAndInstallUpdate() {
+    if (!this.pendingUpdate) return;
+
+    const progressContainer = document.getElementById('update-progress');
+    const progressBar = document.getElementById('update-progress-bar');
+    const progressText = document.getElementById('update-progress-text');
+    const downloadBtn = document.getElementById('update-download-btn');
+    const laterBtn = document.getElementById('update-later-btn');
+
+    // Show progress, hide buttons
+    progressContainer.classList.remove('hidden');
+    downloadBtn.classList.add('hidden');
+    laterBtn.classList.add('hidden');
+    progressText.textContent = 'Downloading...';
+    progressBar.style.width = '0%';
+
+    try {
+      const apkUrl = `${this.serverUrl}${this.pendingUpdate.apk_url}`;
+      console.log('Downloading APK from:', apkUrl);
+
+      // For Capacitor apps, we need to use Filesystem plugin
+      if (Filesystem) {
+        // Download using fetch with progress
+        const response = await fetch(apkUrl);
+
+        if (!response.ok) {
+          throw new Error(`Download failed: ${response.status}`);
+        }
+
+        const contentLength = response.headers.get('content-length');
+        const total = parseInt(contentLength, 10) || this.pendingUpdate.apk_size || 0;
+        let loaded = 0;
+
+        const reader = response.body.getReader();
+        const chunks = [];
+
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) break;
+
+          chunks.push(value);
+          loaded += value.length;
+
+          if (total > 0) {
+            const percent = Math.round((loaded / total) * 100);
+            progressBar.style.width = `${percent}%`;
+            progressText.textContent = `Downloading... ${percent}%`;
+          }
+        }
+
+        progressText.textContent = 'Saving...';
+
+        // Combine chunks into single array
+        const blob = new Blob(chunks, { type: 'application/vnd.android.package-archive' });
+        const arrayBuffer = await blob.arrayBuffer();
+        const base64 = this.arrayBufferToBase64(arrayBuffer);
+
+        // Save to external storage (Downloads folder)
+        const fileName = `camai-update-${this.pendingUpdate.latest_version}.apk`;
+
+        // Try to save to external/downloads first, fall back to documents
+        let result;
+        try {
+          result = await Filesystem.writeFile({
+            path: `Download/${fileName}`,
+            data: base64,
+            directory: 'EXTERNAL_STORAGE',
+            recursive: true
+          });
+        } catch (extErr) {
+          console.log('External storage failed, trying documents:', extErr);
+          result = await Filesystem.writeFile({
+            path: fileName,
+            data: base64,
+            directory: 'DOCUMENTS',
+            recursive: true
+          });
+        }
+
+        console.log('APK saved to:', result.uri);
+        progressText.textContent = 'Opening installer...';
+
+        // Try to open the APK using FileOpener plugin
+        if (FileOpener) {
+          try {
+            await FileOpener.open({
+              filePath: result.uri,
+              contentType: 'application/vnd.android.package-archive'
+            });
+            this.closeUpdateModal();
+          } catch (openErr) {
+            console.error('FileOpener failed:', openErr);
+            // Fallback: show manual install instructions
+            this.showManualInstallInstructions(fileName);
+          }
+        } else {
+          // No FileOpener plugin - show manual instructions
+          this.showManualInstallInstructions(fileName);
+        }
+
+      } else {
+        // Fallback for browser/non-Capacitor: direct download link
+        const link = document.createElement('a');
+        link.href = apkUrl;
+        link.download = `camai-update-${this.pendingUpdate.latest_version}.apk`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        progressText.textContent = 'Download started in browser';
+        setTimeout(() => this.closeUpdateModal(), 2000);
+      }
+
+    } catch (e) {
+      console.error('Update download failed:', e);
+      progressText.textContent = 'Download failed. Please try again.';
+      downloadBtn.classList.remove('hidden');
+      laterBtn.classList.remove('hidden');
+    }
+  }
+
+  showManualInstallInstructions(fileName) {
+    const progressText = document.getElementById('update-progress-text');
+    progressText.innerHTML = `
+      <strong>APK Downloaded!</strong><br>
+      Open your file manager and install:<br>
+      <code>${fileName}</code><br>
+      from your Downloads folder
+    `;
+
+    // Show a button to close
+    const laterBtn = document.getElementById('update-later-btn');
+    laterBtn.textContent = 'Close';
+    laterBtn.classList.remove('hidden');
+  }
+
+  arrayBufferToBase64(buffer) {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
   }
 
   updateUserDisplay() {
