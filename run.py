@@ -13,7 +13,9 @@ import time
 import logging
 import threading
 import asyncio
+import socket
 from pathlib import Path
+from datetime import datetime
 
 # Add src to path
 src_path = Path(__file__).parent / "src"
@@ -115,6 +117,37 @@ def main():
         # Send via WebSocket for in-app updates
         broadcast_alert(alert_data)
 
+        # Save screenshot for FCM notification
+        image_url = None
+        if alert_data.get("screenshot"):
+            try:
+                # Save screenshot to snapshots directory
+                snapshot_dir = Path(cfg.snapshot_dir)
+                snapshot_dir.mkdir(parents=True, exist_ok=True)
+
+                timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"alert_{timestamp_str}.jpg"
+                filepath = snapshot_dir / filename
+
+                # Write JPEG bytes directly
+                with open(filepath, 'wb') as f:
+                    f.write(alert_data["screenshot"])
+
+                # Get server IP for the image URL
+                try:
+                    # Get the IP address of the machine
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.connect(("8.8.8.8", 80))
+                    server_ip = s.getsockname()[0]
+                    s.close()
+                except Exception:
+                    server_ip = "localhost"
+
+                image_url = f"http://{server_ip}:{cfg.stream_port}/api/snapshots/{filename}"
+                log.debug(f"Alert snapshot saved: {filename}")
+            except Exception as e:
+                log.warning(f"Failed to save alert snapshot: {e}")
+
         # Send via Firebase for push notifications
         if firebase and firebase.initialized:
             try:
@@ -126,6 +159,7 @@ def main():
                     person_count=max(1, person_count),
                     confidence=confidence,
                     timestamp=alert_data.get("timestamp"),
+                    image_url=image_url,
                 )
             except Exception as e:
                 log.warning(f"Failed to send Firebase notification: {e}")

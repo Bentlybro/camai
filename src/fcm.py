@@ -265,8 +265,9 @@ class FirebaseNotificationService:
         person_count: int = 1,
         confidence: float = 0.9,
         timestamp: float = None,
+        image_url: str = None,
     ) -> dict:
-        """Send person detection alert notification."""
+        """Send person detection alert notification with optional image."""
         title = "Person Detected"
         body = f"{person_count} {'people' if person_count > 1 else 'person'} detected"
 
@@ -280,7 +281,10 @@ class FirebaseNotificationService:
             'alert_timestamp': timestamp or datetime.now().timestamp(),
         }
 
-        return self.send_notification(title=title, body=body, data=data)
+        if image_url:
+            data['image_url'] = image_url
+
+        return self.send_notification(title=title, body=body, image_url=image_url, data=data)
 
 
 # Global instance
