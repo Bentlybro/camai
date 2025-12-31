@@ -28,37 +28,49 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Setup Firebase Push Notifications
     if (PushNotifications) {
+      console.log('=== FCM DEBUG: PushNotifications plugin available ===');
       try {
         // Request permission
+        console.log('FCM DEBUG: Requesting permissions...');
         const permResult = await PushNotifications.requestPermissions();
-        console.log('Push notification permission:', permResult.receive);
+        console.log('FCM DEBUG: Permission result:', JSON.stringify(permResult));
 
         if (permResult.receive === 'granted') {
           // Register for push notifications
+          console.log('FCM DEBUG: Permission granted, calling register()...');
           await PushNotifications.register();
-          console.log('Registered for push notifications');
+          console.log('FCM DEBUG: register() called successfully');
+        } else {
+          console.log('FCM DEBUG: Permission NOT granted:', permResult.receive);
         }
 
         // Listen for registration success - get the FCM token
         PushNotifications.addListener('registration', (token) => {
+          console.log('=== FCM DEBUG: GOT TOKEN ===');
           console.log('FCM Token:', token.value);
+          console.log('Token length:', token.value?.length);
           // Store the token for later registration with server
           localStorage.setItem('fcm_token', token.value);
 
           // If app is already connected, register the token
           if (camaiAppInstance && camaiAppInstance.isConnected) {
+            console.log('FCM DEBUG: App connected, registering token with server...');
             camaiAppInstance.registerFCMToken(token.value);
+          } else {
+            console.log('FCM DEBUG: App not connected yet, token saved for later');
           }
         });
 
         // Listen for registration errors
         PushNotifications.addListener('registrationError', (error) => {
-          console.error('FCM registration error:', error);
+          console.error('=== FCM DEBUG: REGISTRATION ERROR ===');
+          console.error('FCM registration error:', JSON.stringify(error));
         });
 
         // Listen for push notifications received while app is in foreground
         PushNotifications.addListener('pushNotificationReceived', (notification) => {
-          console.log('Push notification received:', notification);
+          console.log('=== FCM DEBUG: PUSH RECEIVED (foreground) ===');
+          console.log('Push notification received:', JSON.stringify(notification));
           // Vibrate on notification
           if (navigator.vibrate) {
             navigator.vibrate([200, 100, 200]);
@@ -67,7 +79,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Listen for push notification action (tap)
         PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
-          console.log('Push notification tapped:', notification);
+          console.log('=== FCM DEBUG: PUSH TAPPED ===');
+          console.log('Push notification tapped:', JSON.stringify(notification));
           // App is brought to foreground, switch to live tab
           if (camaiAppInstance) {
             camaiAppInstance.switchTab('live');
@@ -75,8 +88,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
       } catch (e) {
-        console.log('Push notifications not available:', e);
+        console.error('=== FCM DEBUG: SETUP ERROR ===');
+        console.error('Push notifications error:', e);
       }
+    } else {
+      console.log('=== FCM DEBUG: PushNotifications plugin NOT available ===');
     }
 
     // Setup background mode to keep WebSocket alive
@@ -422,18 +438,27 @@ class CamaiApp {
 
   async registerFCMToken(token = null) {
     // Register FCM token with server for push notifications
+    console.log('=== FCM DEBUG: registerFCMToken called ===');
     try {
       // Get token from parameter or localStorage
       const fcmToken = token || localStorage.getItem('fcm_token');
+      console.log('FCM DEBUG: Token from param:', token ? 'yes' : 'no');
+      console.log('FCM DEBUG: Token from storage:', localStorage.getItem('fcm_token') ? 'yes' : 'no');
+
       if (!fcmToken) {
-        console.log('No FCM token available yet');
+        console.log('FCM DEBUG: No FCM token available yet');
         return;
       }
 
+      console.log('FCM DEBUG: Token length:', fcmToken.length);
+      console.log('FCM DEBUG: Token preview:', fcmToken.substring(0, 30) + '...');
+
       // Get device name
       const deviceName = navigator.userAgent.includes('Android') ? 'Android Phone' : 'Mobile Device';
+      const url = `${this.serverUrl}/api/notifications/register`;
+      console.log('FCM DEBUG: Registering with server:', url);
 
-      const response = await fetch(`${this.serverUrl}/api/notifications/register`, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -443,13 +468,19 @@ class CamaiApp {
         })
       });
 
+      console.log('FCM DEBUG: Server response status:', response.status);
+
       if (response.ok) {
         const data = await response.json();
+        console.log('=== FCM DEBUG: TOKEN REGISTERED SUCCESS ===');
         console.log('FCM token registered:', data.message);
       } else {
-        console.error('Failed to register FCM token:', response.status);
+        const errorText = await response.text();
+        console.error('=== FCM DEBUG: TOKEN REGISTRATION FAILED ===');
+        console.error('Failed to register FCM token:', response.status, errorText);
       }
     } catch (error) {
+      console.error('=== FCM DEBUG: TOKEN REGISTRATION ERROR ===');
       console.error('Error registering FCM token:', error);
     }
   }
