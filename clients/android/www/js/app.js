@@ -1168,38 +1168,20 @@ class CamaiApp {
   // === PERSON ALERT ===
 
   showPersonAlert(data) {
-    // Show live stream in the alert
-    const liveStreamImg = document.getElementById('alert-live-stream');
-    if (this.serverUrl) {
-      liveStreamImg.src = `${this.serverUrl}/stream?overlay=true&t=${Date.now()}`;
-    }
-
-    // Set time
+    // Get detection info for notification
     const timestamp = data.timestamp ? data.timestamp * 1000 : Date.now();
-    document.getElementById('alert-time').textContent = new Date(timestamp).toLocaleTimeString();
-
-    // Set detections info
     const detections = data.detections || [];
     const personCount = detections.filter(d => d.class === 'person').length;
     const alertText = personCount > 1 ? `${personCount} people detected` : '1 person detected';
-    document.getElementById('alert-detections').textContent = alertText;
-
-    // Show alert popup in app
-    document.getElementById('person-alert').classList.remove('hidden');
 
     // Vibrate if supported
     if (navigator.vibrate) {
       navigator.vibrate([200, 100, 200]);
     }
 
-    // Send local notification with screenshot (works even when app is in background)
+    // Send local notification with screenshot (pull-down notification only)
     const screenshotBase64 = data.screenshot || null;
     this.sendLocalNotification('Person Detected', alertText, timestamp, screenshotBase64);
-
-    // Auto-hide after 15 seconds (longer since showing live stream)
-    setTimeout(() => {
-      this.closePersonAlert();
-    }, 15000);
   }
 
   async sendLocalNotification(title, body, timestamp, screenshotBase64 = null) {

@@ -2,6 +2,8 @@
 import os
 import time
 import threading
+import subprocess
+import shutil
 import logging
 from collections import deque
 from pathlib import Path
@@ -12,6 +14,11 @@ import cv2
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# Check for ffmpeg availability
+FFMPEG_PATH = shutil.which('ffmpeg')
+if not FFMPEG_PATH:
+    logger.warning("FFmpeg not found in PATH, falling back to OpenCV for recording")
 
 
 @dataclass
@@ -66,15 +73,21 @@ class RecordingManager:
 
         # Recording state
         self._recording = False
-        self._writer: Optional[cv2.VideoWriter] = None
+        self._writer = None  # Can be cv2.VideoWriter or FFmpeg process
+        self._ffmpeg_proc: Optional[subprocess.Popen] = None
         self._current_file: Optional[Path] = None
         self._record_start: float = 0
         self._last_person_seen: float = 0
         self._person_visible = False
         self._trigger_frame: Optional[np.ndarray] = None
+        self._use_ffmpeg = FFMPEG_PATH is not None
+        self._pending_frames = deque()  # Queue for async frame writing
+        self._writer_thread: Optional[threading.Thread] = None
+        self._stop_writer = False
 
         # Thread safety
         self._lock = threading.Lock()
+        self._write_lock = threading.Lock()
 
         # Detection threshold - require consecutive frames before triggering
         self._consecutive_detections = 0
@@ -142,9 +155,12 @@ class RecordingManager:
                     if now - self._last_person_seen >= self.post_record_seconds:
                         self._stop_recording()
 
-            # Write frame if recording
-            if self._recording and self._writer:
-                self._writer.write(frame)
+            # Queue frame for async writing if recording
+            if self._recording:
+                with self._write_lock:
+                    # Limit queue size to prevent memory issues
+                    if len(self._pending_frames) < 300:  # ~20 seconds at 15fps
+                        self._pending_frames.append(frame.copy())
 
     def _send_alert(self, frame: np.ndarray, detections: list = None):
         """Send person detection alert with screenshot."""
@@ -185,62 +201,190 @@ class RecordingManager:
         filename = f"person_{timestamp_str}.mp4"
         self._current_file = date_dir / filename
 
-        # Initialize video writer
-        # Try H.264 first for browser compatibility, then fall back to other codecs
-        # H.264 (avc1/X264) is universally supported in browsers
-        codecs_to_try = [
-            'avc1',  # H.264 - best browser compatibility
-            'X264',  # H.264 alternative fourcc
-            'H264',  # H.264 another alternative
-            'mp4v',  # MPEG-4 Part 2 - fallback (may not play in browser)
+        # Copy buffer frames for async writing
+        buffer_frames = [(ts, frame.copy()) for ts, frame in self._frame_buffer]
+        buffer_count = len(buffer_frames)
+
+        # Set recording flag immediately to start capturing new frames
+        self._recording = True
+        self._record_start = start_time - (buffer_count / self.fps)
+
+        # Start writer in background thread to avoid lag spike
+        self._stop_writer = False
+        self._writer_thread = threading.Thread(
+            target=self._writer_thread_func,
+            args=(buffer_frames,),
+            daemon=True
+        )
+        self._writer_thread.start()
+
+        logger.info(f"Recording started: {self._current_file} (pre-roll: {buffer_count} frames)")
+
+    def _writer_thread_func(self, buffer_frames: list):
+        """Background thread for writing frames to video."""
+        try:
+            if self._use_ffmpeg:
+                self._init_ffmpeg_writer()
+            else:
+                self._init_opencv_writer()
+
+            if not self._writer and not self._ffmpeg_proc:
+                logger.error("Failed to initialize video writer")
+                self._recording = False
+                return
+
+            # Write buffered frames (pre-roll)
+            for ts, frame in buffer_frames:
+                if frame.shape[1] != self.resolution[0] or frame.shape[0] != self.resolution[1]:
+                    frame = cv2.resize(frame, self.resolution)
+                self._write_frame(frame)
+
+            # Process pending frames until stopped
+            while not self._stop_writer:
+                try:
+                    with self._write_lock:
+                        if self._pending_frames:
+                            frame = self._pending_frames.popleft()
+                        else:
+                            frame = None
+
+                    if frame is not None:
+                        self._write_frame(frame)
+                    else:
+                        time.sleep(0.01)  # Small sleep when no frames
+                except Exception as e:
+                    logger.error(f"Error writing frame: {e}")
+                    break
+
+        except Exception as e:
+            logger.error(f"Writer thread error: {e}")
+        finally:
+            self._cleanup_writer()
+
+    def _init_ffmpeg_writer(self):
+        """Initialize FFmpeg subprocess for H.264 encoding."""
+        width, height = self.resolution
+
+        # Try hardware encoding first (Jetson), then software
+        encoders_to_try = [
+            # Jetson hardware encoder
+            ['h264_nvmpi', ['-preset', 'medium']],
+            # Generic hardware
+            ['h264_nvenc', ['-preset', 'fast']],
+            # Software encoder (always works)
+            ['libx264', ['-preset', 'ultrafast', '-tune', 'zerolatency', '-crf', '23']],
         ]
 
-        self._writer = None
+        for encoder, opts in encoders_to_try:
+            try:
+                cmd = [
+                    FFMPEG_PATH,
+                    '-y',  # Overwrite output
+                    '-f', 'rawvideo',
+                    '-vcodec', 'rawvideo',
+                    '-pix_fmt', 'bgr24',
+                    '-s', f'{width}x{height}',
+                    '-r', str(self.fps),
+                    '-i', '-',  # Read from stdin
+                    '-c:v', encoder,
+                    *opts,
+                    '-pix_fmt', 'yuv420p',
+                    '-movflags', '+faststart',
+                    str(self._current_file)
+                ]
+
+                self._ffmpeg_proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE
+                )
+
+                # Give it a moment to start
+                time.sleep(0.1)
+
+                if self._ffmpeg_proc.poll() is None:
+                    logger.info(f"Recording using FFmpeg encoder: {encoder}")
+                    return
+                else:
+                    # Process exited, try next encoder
+                    stderr = self._ffmpeg_proc.stderr.read().decode() if self._ffmpeg_proc.stderr else ""
+                    logger.debug(f"Encoder {encoder} failed: {stderr[:200]}")
+                    self._ffmpeg_proc = None
+
+            except Exception as e:
+                logger.debug(f"Encoder {encoder} not available: {e}")
+                self._ffmpeg_proc = None
+                continue
+
+        logger.warning("FFmpeg H.264 encoding failed, falling back to OpenCV")
+        self._init_opencv_writer()
+
+    def _init_opencv_writer(self):
+        """Initialize OpenCV VideoWriter as fallback."""
+        codecs_to_try = ['mp4v', 'XVID']
+
         for codec in codecs_to_try:
             try:
                 fourcc = cv2.VideoWriter_fourcc(*codec)
-                test_writer = cv2.VideoWriter(
+                self._writer = cv2.VideoWriter(
                     str(self._current_file),
                     fourcc,
                     self.fps,
                     self.resolution
                 )
-                if test_writer.isOpened():
-                    self._writer = test_writer
-                    logger.info(f"Recording using codec: {codec}")
-                    break
+                if self._writer.isOpened():
+                    logger.info(f"Recording using OpenCV codec: {codec}")
+                    return
                 else:
-                    test_writer.release()
+                    self._writer.release()
+                    self._writer = None
             except Exception as e:
-                logger.debug(f"Codec {codec} not available: {e}")
+                logger.debug(f"OpenCV codec {codec} not available: {e}")
                 continue
 
-        if not self._writer or not self._writer.isOpened():
-            logger.error(f"Failed to open video writer: {self._current_file} (no compatible codec found)")
-            self._writer = None
-            return
+        logger.error("No video encoder available!")
 
-        # Write buffered frames (pre-roll)
-        buffer_frames_written = 0
-        for ts, frame in self._frame_buffer:
-            if frame.shape[1] != self.resolution[0] or frame.shape[0] != self.resolution[1]:
-                frame = cv2.resize(frame, self.resolution)
+    def _write_frame(self, frame: np.ndarray):
+        """Write a single frame to the video."""
+        if self._ffmpeg_proc and self._ffmpeg_proc.stdin:
+            try:
+                self._ffmpeg_proc.stdin.write(frame.tobytes())
+            except BrokenPipeError:
+                logger.error("FFmpeg pipe broken")
+        elif self._writer:
             self._writer.write(frame)
-            buffer_frames_written += 1
 
-        self._recording = True
-        self._record_start = start_time - (buffer_frames_written / self.fps)
+    def _cleanup_writer(self):
+        """Clean up video writer resources."""
+        if self._ffmpeg_proc:
+            try:
+                if self._ffmpeg_proc.stdin:
+                    self._ffmpeg_proc.stdin.close()
+                self._ffmpeg_proc.wait(timeout=5)
+            except:
+                self._ffmpeg_proc.kill()
+            self._ffmpeg_proc = None
 
-        logger.info(f"Recording started: {self._current_file} (pre-roll: {buffer_frames_written} frames)")
+        if self._writer:
+            self._writer.release()
+            self._writer = None
 
     def _stop_recording(self):
         """Stop current recording and save."""
-        if not self._recording or not self._writer:
+        if not self._recording:
             return
 
-        self._writer.release()
-        self._writer = None
         self._recording = False
+        self._stop_writer = True
+
+        # Wait for writer thread to finish
+        if self._writer_thread and self._writer_thread.is_alive():
+            self._writer_thread.join(timeout=5)
+
+        # Clear pending frames
+        with self._write_lock:
+            self._pending_frames.clear()
 
         end_time = time.time()
         duration = end_time - self._record_start
