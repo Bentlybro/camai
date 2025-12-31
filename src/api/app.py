@@ -72,7 +72,9 @@ def get_state(key: str):
 
 
 def update_stats(fps: float, inference_ms: float, frame_count: int, tracked: int, uptime: float):
-    """Update stats from main loop."""
+    """Update stats from main loop and broadcast via WebSocket."""
+    global _event_loop
+
     _state["stats"] = {
         "fps": round(fps, 1),
         "inference_ms": round(inference_ms, 1),
@@ -80,6 +82,53 @@ def update_stats(fps: float, inference_ms: float, frame_count: int, tracked: int
         "tracked_objects": tracked,
         "uptime": round(uptime, 1),
     }
+
+    # Broadcast stats via WebSocket (every call - throttled by main loop)
+    if _ws_connections and _event_loop and _event_loop.is_running():
+        # Format uptime
+        uptime_formatted = ""
+        if uptime >= 86400:
+            uptime_formatted = f"{int(uptime // 86400)}d {int((uptime % 86400) // 3600)}h"
+        elif uptime >= 3600:
+            uptime_formatted = f"{int(uptime // 3600)}h {int((uptime % 3600) // 60)}m"
+        elif uptime >= 60:
+            uptime_formatted = f"{int(uptime // 60)}m {int(uptime % 60)}s"
+        else:
+            uptime_formatted = f"{int(uptime)}s"
+
+        message = {
+            "type": "stats",
+            "data": {
+                **_state["stats"],
+                "uptime_formatted": uptime_formatted,
+            }
+        }
+        asyncio.run_coroutine_threadsafe(_broadcast_to_clients(message), _event_loop)
+
+
+def broadcast_detections(detections: list):
+    """Broadcast current detections via WebSocket."""
+    global _event_loop
+
+    if not _ws_connections or not _event_loop or not _event_loop.is_running():
+        return
+
+    # Convert detection objects to dicts for JSON
+    det_list = []
+    for d in detections:
+        det_list.append({
+            "class": d.class_name if hasattr(d, 'class_name') else str(d),
+            "confidence": float(d.confidence) if hasattr(d, 'confidence') else 0,
+            "description": d.description if hasattr(d, 'description') else None,
+            "color": d.color if hasattr(d, 'color') else None,
+            "status": "active",  # Could be enhanced with actual status from tracker
+        })
+
+    message = {
+        "type": "detections",
+        "data": {"detections": det_list}
+    }
+    asyncio.run_coroutine_threadsafe(_broadcast_to_clients(message), _event_loop)
 
 
 def add_event(event_dict: dict):

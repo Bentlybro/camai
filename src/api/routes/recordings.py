@@ -148,16 +148,19 @@ async def stream_recording(recording_id: int):
         recording = db.get_recording(recording_id)
 
         if not recording:
-            raise HTTPException(status_code=404, detail="Recording not found")
+            raise HTTPException(status_code=404, detail="Recording not found in database")
 
         # Get recording manager to find file path
         recorder = _state.get("recorder")
         if not recorder:
             raise HTTPException(status_code=500, detail="Recording system not available")
 
-        video_path = recorder.get_recording_path(recording["path"])
+        stored_path = recording["path"]
+        video_path = recorder.get_recording_path(stored_path)
+
         if not video_path or not video_path.exists():
-            raise HTTPException(status_code=404, detail="Video file not found")
+            logger.error(f"Video file not found for recording {recording_id}: stored_path='{stored_path}', resolved='{video_path}'")
+            raise HTTPException(status_code=404, detail=f"Video file not found: {stored_path}")
 
         return FileResponse(
             video_path,

@@ -33,7 +33,7 @@ from database import init_database, get_database
 import api
 
 # Also import from new modular structure (api uses this internally)
-from api import app, set_state, update_stats, add_event, broadcast_alert
+from api import app, set_state, update_stats, add_event, broadcast_alert, broadcast_detections
 
 logging.basicConfig(
     level=logging.INFO,
@@ -355,6 +355,8 @@ def main():
             if now - last_stats_update >= 0.5:
                 elapsed = now - start_time
                 api.update_stats(cached_fps, cached_total_inf, frame_count, events.tracked_count, elapsed)
+                # Also broadcast detections via WebSocket
+                broadcast_detections(detections)
                 last_stats_update = now
 
             # Log stats every 30s

@@ -256,9 +256,16 @@ class RecordingManager:
 
         # Callback with recording info
         if self.on_recording_complete and self._current_file:
+            # Store path relative to output_dir for database
+            try:
+                relative_path = self._current_file.relative_to(self.output_dir)
+            except ValueError:
+                # Fallback if path isn't relative to output_dir
+                relative_path = self._current_file
+
             info = {
                 "filename": self._current_file.name,
-                "path": str(self._current_file),
+                "path": str(relative_path),
                 "start_time": self._record_start,
                 "end_time": end_time,
                 "duration": duration,
@@ -394,17 +401,39 @@ class RecordingManager:
         return [r for r in recordings if r is not None][:limit]
 
     def get_recording_path(self, relative_path: str) -> Optional[Path]:
-        """Get full path to a recording file."""
+        """Get full path to a recording file.
+
+        Handles both:
+        - Relative paths: "2024-12-31/person_20241231_092448.mp4"
+        - Legacy full paths: "recordings/2024-12-31/person_20241231_092448.mp4"
+        """
+        # Try as relative path first
         full_path = self.output_dir / relative_path
         if full_path.exists() and full_path.is_file():
             return full_path
+
+        # Try as absolute path (legacy format)
+        abs_path = Path(relative_path)
+        if abs_path.exists() and abs_path.is_file():
+            return abs_path
+
+        # Try stripping output_dir prefix if it was stored with it
+        path_obj = Path(relative_path)
+        if path_obj.parts and path_obj.parts[0] == self.output_dir.name:
+            # Path starts with "recordings/", strip it
+            stripped_path = Path(*path_obj.parts[1:])
+            full_path = self.output_dir / stripped_path
+            if full_path.exists() and full_path.is_file():
+                return full_path
+
         return None
 
     def delete_recording(self, relative_path: str) -> bool:
         """Delete a recording and its thumbnail."""
-        full_path = self.output_dir / relative_path
+        # Use get_recording_path to handle various path formats
+        full_path = self.get_recording_path(relative_path)
 
-        if not full_path.exists():
+        if not full_path or not full_path.exists():
             return False
 
         try:

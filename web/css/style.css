@@ -1633,20 +1633,31 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* Recordings Page */
+#page-recordings .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
 .recordings-controls {
     display: flex;
+    flex-direction: row;
     gap: 1rem;
     align-items: center;
 }
 
 .recordings-controls .form-input {
     width: auto;
+    min-width: 150px;
 }
 
 .recordings-stats-bar {
     display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
     gap: 2rem;
-    padding: 1rem 1.5rem;
+    padding: 1.25rem 1.5rem;
     background: var(--bg-card);
     border-radius: 12px;
     margin-bottom: 1.5rem;
@@ -1657,23 +1668,27 @@ input[type="range"]::-webkit-slider-thumb {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+    min-width: 100px;
 }
 
 .recording-stat .stat-value {
-    font-size: 1.25rem;
+    font-size: 1.5rem;
     font-weight: 700;
     color: var(--accent);
+    line-height: 1.2;
 }
 
 .recording-stat .stat-label {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .recordings-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1.25rem;
 }
 
 .recording-card {
@@ -1688,16 +1703,18 @@ input[type="range"]::-webkit-slider-thumb {
 .recording-card:hover {
     border-color: var(--accent);
     transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
 }
 
 .recording-thumbnail {
     width: 100%;
-    height: 180px;
-    background: #000;
+    height: 160px;
+    background: #111;
     display: flex;
     align-items: center;
     justify-content: center;
     position: relative;
+    overflow: hidden;
 }
 
 .recording-thumbnail img {
@@ -1715,12 +1732,13 @@ input[type="range"]::-webkit-slider-thumb {
     position: absolute;
     bottom: 8px;
     right: 8px;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.85);
     color: white;
     padding: 4px 8px;
     border-radius: 4px;
     font-size: 0.75rem;
     font-weight: 600;
+    z-index: 1;
 }
 
 .recording-info {
@@ -1729,16 +1747,18 @@ input[type="range"]::-webkit-slider-thumb {
 
 .recording-title {
     font-weight: 600;
+    font-size: 0.9rem;
     margin-bottom: 0.5rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    color: var(--text);
 }
 
 .recording-meta {
     display: flex;
     justify-content: space-between;
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     color: var(--text-secondary);
 }
 
