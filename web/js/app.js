@@ -1,4 +1,6 @@
 // CAMAI Dashboard JavaScript
+// Version: 2024-12-31-recordings-debug
+console.log('CAMAI app.js loaded - version 2024-12-31-recordings-debug');
 
 class CAMAIDashboard {
     constructor() {
@@ -30,8 +32,10 @@ class CAMAIDashboard {
     }
 
     setupRecordingsControls() {
+        console.log('Setting up recordings controls...');
         const dateFilter = document.getElementById('recording-date-filter');
         const refreshBtn = document.getElementById('btn-refresh-recordings');
+        console.log('Date filter:', dateFilter, 'Refresh btn:', refreshBtn);
 
         if (dateFilter) {
             dateFilter.addEventListener('change', (e) => {
@@ -121,6 +125,7 @@ class CAMAIDashboard {
             this.loadSystemStats();
             this.startSystemStatsPolling();
         } else if (pageName === 'recordings') {
+            console.log('Navigating to recordings page, calling loadRecordings...');
             this.loadRecordings();
             this.loadRecordingStats();
         }
@@ -1490,15 +1495,22 @@ class CAMAIDashboard {
     // ==================== RECORDINGS ====================
 
     async loadRecordings(date = null) {
+        console.log('loadRecordings called, date:', date);
         const grid = document.getElementById('recordings-grid');
-        if (!grid) return;
+        if (!grid) {
+            console.error('recordings-grid element not found!');
+            return;
+        }
 
         try {
             let url = '/api/recordings?limit=50';
             if (date) url += `&date=${date}`;
+            console.log('Fetching recordings from:', url);
 
             const res = await fetch(url);
+            console.log('API response status:', res.status);
             const data = await res.json();
+            console.log('API response data:', data);
 
             if (!data.recordings || data.recordings.length === 0) {
                 grid.innerHTML = '<div class="recording-empty">No recordings found</div>';
@@ -1534,7 +1546,8 @@ class CAMAIDashboard {
 
         } catch (err) {
             console.error('Failed to load recordings:', err);
-            grid.innerHTML = '<div class="recording-empty">Failed to load recordings</div>';
+            console.error('Error stack:', err.stack);
+            grid.innerHTML = `<div class="recording-empty">Failed to load recordings: ${err.message}</div>`;
         }
     }
 
@@ -1631,5 +1644,7 @@ class CAMAIDashboard {
 
 // Initialize dashboard
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOMContentLoaded - initializing CAMAI Dashboard');
     window.dashboard = new CAMAIDashboard();
+    console.log('Dashboard initialized:', window.dashboard);
 });
