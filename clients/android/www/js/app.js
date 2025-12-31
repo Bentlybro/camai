@@ -4,18 +4,27 @@
 // Import Capacitor plugins when available
 let LocalNotifications = null;
 let BackgroundMode = null;
+let App = null;
+let camaiAppInstance = null;
 
 // Initialize Capacitor plugins when DOM is ready
 document.addEventListener('DOMContentLoaded', async () => {
   if (window.Capacitor && window.Capacitor.Plugins) {
     LocalNotifications = window.Capacitor.Plugins.LocalNotifications;
     BackgroundMode = window.Capacitor.Plugins.BackgroundMode;
+    App = window.Capacitor.Plugins.App;
 
     // Request notification permissions
     if (LocalNotifications) {
       try {
         const permResult = await LocalNotifications.requestPermissions();
         console.log('Notification permission:', permResult.display);
+
+        // Listen for notification clicks to open the app
+        LocalNotifications.addListener('localNotificationActionPerformed', (notification) => {
+          console.log('Notification clicked:', notification);
+          // App will be brought to foreground automatically
+        });
       } catch (e) {
         console.log('Notifications not available:', e);
       }
@@ -24,7 +33,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Setup background mode to keep WebSocket alive
     if (BackgroundMode) {
       try {
-        // Configure background mode
+        // Configure background mode with foreground service
         await BackgroundMode.setSettings({
           title: 'CAMAI Monitoring',
           text: 'Watching for person detection',
@@ -32,22 +41,45 @@ document.addEventListener('DOMContentLoaded', async () => {
           color: '00d4aa',
           resume: true,
           hidden: false,
-          bigText: false
+          bigText: false,
+          silent: false
         });
 
-        // Enable background mode when connected
+        // Handle app going to background
         BackgroundMode.addListener('appInBackground', () => {
           console.log('App went to background - keeping WebSocket alive');
         });
 
+        // Handle app coming back to foreground - reconnect WebSocket if needed
         BackgroundMode.addListener('appInForeground', () => {
           console.log('App returned to foreground');
+          if (camaiAppInstance && camaiAppInstance.isConnected) {
+            // Check WebSocket state and reconnect if needed
+            if (!camaiAppInstance.ws || camaiAppInstance.ws.readyState !== WebSocket.OPEN) {
+              console.log('WebSocket disconnected while in background, reconnecting...');
+              camaiAppInstance.connectWebSocket();
+            }
+          }
         });
 
         console.log('Background mode configured');
       } catch (e) {
         console.log('Background mode not available:', e);
       }
+    }
+
+    // Also listen for App state changes (Capacitor core)
+    if (App) {
+      App.addListener('appStateChange', ({ isActive }) => {
+        console.log('App state changed, isActive:', isActive);
+        if (isActive && camaiAppInstance && camaiAppInstance.isConnected) {
+          // App became active - ensure WebSocket is connected
+          if (!camaiAppInstance.ws || camaiAppInstance.ws.readyState !== WebSocket.OPEN) {
+            console.log('Reconnecting WebSocket after app resume...');
+            camaiAppInstance.connectWebSocket();
+          }
+        }
+      });
     }
   }
 });
@@ -66,6 +98,10 @@ class CamaiApp {
     this.recordingsCache = [];
     this.currentRecording = null;
     this.notificationId = 1;
+    this.isInBackground = false;
+
+    // Store instance for background handlers
+    camaiAppInstance = this;
 
     this.init();
   }
@@ -301,11 +337,12 @@ class CamaiApp {
     // Enable background mode to keep WebSocket alive when app is minimized
     this.enableBackgroundMode();
 
-    // Start polling for stats (every 2 seconds)
-    this.statsInterval = setInterval(() => this.loadStats(), 2000);
+    // Stats now come via WebSocket, only poll once for initial data
+    // and as a fallback every 10 seconds
+    this.statsInterval = setInterval(() => this.loadStats(), 10000);
 
-    // Start polling for system stats (every 3 seconds)
-    this.systemInterval = setInterval(() => this.loadSystemStats(), 3000);
+    // Start polling for system stats (every 10 seconds - less frequent)
+    this.systemInterval = setInterval(() => this.loadSystemStats(), 10000);
 
     // Initial loads
     this.loadStats();
@@ -357,9 +394,14 @@ class CamaiApp {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'stats') {
-            this.updateLiveStats(data);
+            this.updateLiveStats(data.data || data);
+          } else if (data.type === 'detections') {
+            // Could update UI with current detections if needed
           } else if (data.type === 'person_alert') {
+            // Always send notification (works in foreground and background)
             this.showPersonAlert(data);
+          } else if (data.type === 'pong') {
+            // Ping response, connection is alive
           }
         } catch (e) {
           // Ignore parse errors
@@ -369,12 +411,16 @@ class CamaiApp {
       // Clear any existing ping interval
       if (this.pingInterval) clearInterval(this.pingInterval);
 
-      // Send ping every 30 seconds
+      // Send ping every 15 seconds to keep connection alive in background
       this.pingInterval = setInterval(() => {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({ type: 'ping' }));
+        } else if (this.isConnected) {
+          // WebSocket disconnected but we think we're connected - reconnect
+          console.log('WebSocket dead, reconnecting...');
+          this.connectWebSocket();
         }
-      }, 30000);
+      }, 15000);
 
     } catch (e) {
       console.error('WebSocket setup error:', e);
@@ -1039,18 +1085,35 @@ class CamaiApp {
     }
 
     try {
+      // Create notification channel first (required for Android 8+)
+      try {
+        await LocalNotifications.createChannel({
+          id: 'person_alerts',
+          name: 'Person Detection Alerts',
+          description: 'Notifications when a person is detected',
+          importance: 5, // IMPORTANCE_HIGH
+          visibility: 1, // VISIBILITY_PUBLIC
+          sound: 'default',
+          vibration: true,
+          lights: true
+        });
+      } catch (channelErr) {
+        // Channel might already exist, that's ok
+      }
+
+      // Fire notification immediately (not scheduled)
       await LocalNotifications.schedule({
         notifications: [
           {
             title: title,
             body: body,
             id: this.notificationId++,
-            schedule: { at: new Date(timestamp) },
+            // No schedule = immediate notification
             sound: 'default',
-            smallIcon: 'ic_stat_camera',
-            largeIcon: 'ic_launcher',
+            smallIcon: 'ic_stat_icon_config_sample',
             iconColor: '#00d4aa',
-            actionTypeId: 'OPEN_APP',
+            channelId: 'person_alerts',
+            autoCancel: true,
             extra: {
               type: 'person_alert',
               timestamp: timestamp
@@ -1058,7 +1121,7 @@ class CamaiApp {
           }
         ]
       });
-      console.log('Local notification scheduled');
+      console.log('Local notification sent');
     } catch (err) {
       console.error('Failed to send local notification:', err);
     }
@@ -1075,6 +1138,23 @@ class CamaiApp {
     }
 
     try {
+      // Request to disable battery optimization (important for background execution)
+      try {
+        await BackgroundMode.disableBatteryOptimizations();
+        console.log('Battery optimization disabled');
+      } catch (battErr) {
+        console.log('Battery optimization request:', battErr.message || 'handled');
+      }
+
+      // Request to disable web view optimizations
+      try {
+        await BackgroundMode.disableWebViewOptimizations();
+        console.log('WebView optimizations disabled');
+      } catch (webErr) {
+        console.log('WebView optimization request:', webErr.message || 'handled');
+      }
+
+      // Enable background mode (starts foreground service)
       await BackgroundMode.enable();
       console.log('Background mode enabled - WebSocket will stay alive when app is minimized');
     } catch (err) {
