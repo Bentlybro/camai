@@ -96,6 +96,12 @@ class RecordingManager:
         # Alert cooldown (don't spam alerts)
         self._last_alert_time: float = 0
         self._alert_cooldown: float = 30.0  # 30 seconds between alerts
+        self._count_increase_cooldown: float = 5.0  # 5 seconds between count increase alerts
+        self._last_count_alert_time: float = 0
+
+        # Track person count for multi-person alerts
+        self._current_person_count = 0
+        self._alerted_person_count = 0  # How many people we've alerted about
 
         # Ensure output directory exists
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -125,18 +131,41 @@ class RecordingManager:
                 self._consecutive_detections += 1
                 self._last_person_seen = now
 
+                # Count people in current detections
+                person_count = len([d for d in (detections or [])
+                                   if (hasattr(d, 'class_name') and d.class_name == 'person') or
+                                      (isinstance(d, dict) and d.get('class') == 'person')])
+                self._current_person_count = max(1, person_count)
+
                 # Only trigger after seeing person for threshold frames
                 # This prevents false positives from single-frame detections
                 if self._consecutive_detections >= self._detection_threshold:
+                    should_alert = False
+                    alert_reason = None
+
                     if not self._person_visible:
-                        # Person confirmed - start tracking
+                        # First person detected - start tracking
                         self._person_visible = True
                         self._trigger_frame = frame.copy()
+                        self._alerted_person_count = 0  # Reset for new detection session
 
                         # Send alert (with cooldown)
                         if now - self._last_alert_time >= self._alert_cooldown:
-                            self._last_alert_time = now
-                            self._send_alert(frame, detections)
+                            should_alert = True
+                            alert_reason = "new"
+
+                    # Check for person count increase
+                    elif self._current_person_count > self._alerted_person_count:
+                        # More people appeared - alert with shorter cooldown
+                        if now - self._last_count_alert_time >= self._count_increase_cooldown:
+                            should_alert = True
+                            alert_reason = "increase"
+
+                    if should_alert:
+                        self._last_alert_time = now
+                        self._last_count_alert_time = now
+                        self._alerted_person_count = self._current_person_count
+                        self._send_alert(frame, detections)
 
                     if not self._recording:
                         # Start recording
@@ -145,10 +174,12 @@ class RecordingManager:
             else:
                 # Reset consecutive counter when no person detected
                 self._consecutive_detections = 0
+                self._current_person_count = 0
 
                 if self._person_visible:
                     # Person just left view
                     self._person_visible = False
+                    self._alerted_person_count = 0  # Reset so next detection triggers fresh alert
 
                 if self._recording:
                     # Check if cooldown expired
