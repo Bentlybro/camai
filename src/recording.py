@@ -186,14 +186,13 @@ class RecordingManager:
         self._current_file = date_dir / filename
 
         # Initialize video writer
-        # On Jetson, H.264 hardware encoding may not be available via OpenCV
-        # Use mp4v which works universally, videos can be re-encoded later if needed
-        # For browser playback, the API will serve these files and most browsers
-        # can play mp4v, though H.264 is preferred
+        # Try H.264 first for browser compatibility, then fall back to other codecs
+        # H.264 (avc1/X264) is universally supported in browsers
         codecs_to_try = [
-            'mp4v',  # MPEG-4 Part 2 - works on Jetson
-            'XVID',  # Xvid - good fallback
-            'MJPG',  # Motion JPEG - large files but very compatible
+            'avc1',  # H.264 - best browser compatibility
+            'X264',  # H.264 alternative fourcc
+            'H264',  # H.264 another alternative
+            'mp4v',  # MPEG-4 Part 2 - fallback (may not play in browser)
         ]
 
         self._writer = None

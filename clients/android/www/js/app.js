@@ -50,10 +50,14 @@ document.addEventListener('DOMContentLoaded', async () => {
           console.log('App went to background - keeping WebSocket alive');
         });
 
-        // Handle app coming back to foreground - reconnect WebSocket if needed
+        // Handle app coming back to foreground - refresh stream and reconnect WebSocket if needed
         BackgroundMode.addListener('appInForeground', () => {
           console.log('App returned to foreground');
           if (camaiAppInstance && camaiAppInstance.isConnected) {
+            // Always refresh the stream - it dies when app goes to background
+            console.log('Refreshing stream after returning to foreground...');
+            camaiAppInstance.updateStream();
+
             // Check WebSocket state and reconnect if needed
             if (!camaiAppInstance.ws || camaiAppInstance.ws.readyState !== WebSocket.OPEN) {
               console.log('WebSocket disconnected while in background, reconnecting...');
@@ -73,7 +77,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       App.addListener('appStateChange', ({ isActive }) => {
         console.log('App state changed, isActive:', isActive);
         if (isActive && camaiAppInstance && camaiAppInstance.isConnected) {
-          // App became active - ensure WebSocket is connected
+          // App became active - refresh stream and ensure WebSocket is connected
+          console.log('Refreshing stream after app resume...');
+          camaiAppInstance.updateStream();
+
           if (!camaiAppInstance.ws || camaiAppInstance.ws.readyState !== WebSocket.OPEN) {
             console.log('Reconnecting WebSocket after app resume...');
             camaiAppInstance.connectWebSocket();
@@ -334,21 +341,17 @@ class CamaiApp {
     // Start stream
     this.updateStream();
 
-    // Setup WebSocket
+    // Setup WebSocket for real-time updates (stats, detections, alerts)
     this.connectWebSocket();
 
     // Enable background mode to keep WebSocket alive when app is minimized
     this.enableBackgroundMode();
 
-    // Stats now come via WebSocket, only poll once for initial data
-    // and as a fallback every 10 seconds
-    this.statsInterval = setInterval(() => this.loadStats(), 10000);
+    // Stats and detections come via WebSocket - no polling needed!
+    // Only poll system stats (CPU, memory, etc.) every 30 seconds
+    this.systemInterval = setInterval(() => this.loadSystemStats(), 30000);
 
-    // Start polling for system stats (every 10 seconds - less frequent)
-    this.systemInterval = setInterval(() => this.loadSystemStats(), 10000);
-
-    // Initial loads
-    this.loadStats();
+    // Initial loads for data not sent via WebSocket
     this.loadEvents();
     this.loadSystemStats();
     this.checkPTZ();
@@ -361,8 +364,18 @@ class CamaiApp {
   updateStream() {
     const stream = document.getElementById('live-stream');
     const endpoint = this.showOverlays ? '/stream' : '/clean-stream';
-    // Add timestamp to force refresh
+    // Add timestamp to force refresh and break cache
     stream.src = `${this.serverUrl}${endpoint}?t=${Date.now()}`;
+
+    // Set up error handler to auto-retry on stream failure
+    stream.onerror = () => {
+      console.log('Stream error, retrying in 2 seconds...');
+      setTimeout(() => {
+        if (this.isConnected) {
+          stream.src = `${this.serverUrl}${endpoint}?t=${Date.now()}`;
+        }
+      }, 2000);
+    };
   }
 
   connectWebSocket() {
@@ -414,15 +427,20 @@ class CamaiApp {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.type === 'stats') {
-            this.updateLiveStats(data.data || data);
-          } else if (data.type === 'detections') {
-            // Could update UI with current detections if needed
-          } else if (data.type === 'person_alert') {
-            // Always send notification (works in foreground and background)
-            this.showPersonAlert(data);
-          } else if (data.type === 'pong') {
-            // Ping response, connection is alive
+          switch (data.type) {
+            case 'stats':
+              this.updateLiveStats(data.data || data);
+              break;
+            case 'detections':
+              this.renderLiveDetections(data.data?.detections || data.detections || []);
+              break;
+            case 'person_alert':
+              // Always send notification (works in foreground and background)
+              this.showPersonAlert(data);
+              break;
+            case 'pong':
+              // Ping response, connection is alive
+              break;
           }
         } catch (e) {
           // Ignore parse errors
@@ -517,14 +535,70 @@ class CamaiApp {
   }
 
   updateLiveStats(data) {
-    if (data.fps) {
-      document.getElementById('stream-fps').textContent = `${data.fps.toFixed(1)} FPS`;
-      document.getElementById('perf-fps').textContent = data.fps.toFixed(1);
+    // Update FPS
+    if (data.fps !== undefined) {
+      const fpsVal = parseFloat(data.fps).toFixed(1);
+      document.getElementById('stream-fps').textContent = `${fpsVal} FPS`;
+      document.getElementById('live-fps').textContent = fpsVal;
+      document.getElementById('perf-fps').textContent = fpsVal;
     }
-    if (data.inference_time) {
-      document.getElementById('stream-latency').textContent = `${data.inference_time.toFixed(1)} ms`;
-      document.getElementById('perf-inference').textContent = `${data.inference_time.toFixed(1)} ms`;
+
+    // Update inference time
+    const inferenceTime = data.inference_time || data.inference_ms;
+    if (inferenceTime !== undefined) {
+      const msVal = parseFloat(inferenceTime).toFixed(1);
+      document.getElementById('stream-latency').textContent = `${msVal} ms`;
+      document.getElementById('live-inference').textContent = msVal;
+      document.getElementById('perf-inference').textContent = `${msVal} ms`;
     }
+
+    // Update frame count
+    if (data.frame_count !== undefined) {
+      document.getElementById('live-frames').textContent = this.formatNumber(data.frame_count);
+    }
+
+    // Update tracked objects
+    if (data.tracked_objects !== undefined) {
+      document.getElementById('live-tracked').textContent = data.tracked_objects;
+      document.getElementById('perf-tracked').textContent = data.tracked_objects;
+    }
+
+    // Update uptime
+    if (data.uptime_formatted) {
+      document.getElementById('live-uptime').textContent = data.uptime_formatted;
+      document.getElementById('stat-uptime').textContent = data.uptime_formatted;
+    }
+  }
+
+  renderLiveDetections(detections) {
+    const container = document.getElementById('detections-list');
+
+    if (!detections || detections.length === 0) {
+      container.innerHTML = '<p class="empty-state">No active detections</p>';
+      return;
+    }
+
+    container.innerHTML = detections.map(det => {
+      const cls = det.class || 'object';
+      const conf = ((det.confidence || 0) * 100).toFixed(0);
+      const icon = cls === 'person' ? '👤' : cls.includes('car') || cls.includes('vehicle') || cls.includes('truck') ? '🚗' : '📦';
+      const status = det.stationary_time > 5 ? 'stopped' : det.stationary_time > 30 ? 'parked' : '';
+
+      return `
+        <div class="detection-item ${status ? 'status-' + status : ''}">
+          <div class="detection-icon ${cls === 'person' ? 'person' : cls.includes('car') || cls.includes('vehicle') ? 'vehicle' : 'package'}">
+            ${icon}
+          </div>
+          <div class="detection-info">
+            <div class="detection-class">${cls}</div>
+            <div class="detection-meta">
+              <span class="detection-conf">${conf}%</span>
+              ${status ? `<span class="detection-status">${status}</span>` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
   }
 
   async loadDetections() {
@@ -1094,13 +1168,10 @@ class CamaiApp {
   // === PERSON ALERT ===
 
   showPersonAlert(data) {
-    // Set screenshot if available
-    const screenshotImg = document.getElementById('alert-screenshot');
-    if (data.screenshot) {
-      screenshotImg.src = `data:image/jpeg;base64,${data.screenshot}`;
-      screenshotImg.style.display = 'block';
-    } else {
-      screenshotImg.style.display = 'none';
+    // Show live stream in the alert
+    const liveStreamImg = document.getElementById('alert-live-stream');
+    if (this.serverUrl) {
+      liveStreamImg.src = `${this.serverUrl}/stream?overlay=true&t=${Date.now()}`;
     }
 
     // Set time
@@ -1121,16 +1192,17 @@ class CamaiApp {
       navigator.vibrate([200, 100, 200]);
     }
 
-    // Send local notification (works even when app is in background)
-    this.sendLocalNotification('Person Detected', alertText, timestamp);
+    // Send local notification with screenshot (works even when app is in background)
+    const screenshotBase64 = data.screenshot || null;
+    this.sendLocalNotification('Person Detected', alertText, timestamp, screenshotBase64);
 
-    // Auto-hide after 10 seconds
+    // Auto-hide after 15 seconds (longer since showing live stream)
     setTimeout(() => {
       this.closePersonAlert();
-    }, 10000);
+    }, 15000);
   }
 
-  async sendLocalNotification(title, body, timestamp) {
+  async sendLocalNotification(title, body, timestamp, screenshotBase64 = null) {
     if (!LocalNotifications) {
       console.log('Local notifications not available');
       return;
@@ -1153,27 +1225,43 @@ class CamaiApp {
         // Channel might already exist, that's ok
       }
 
-      // Fire notification immediately (not scheduled)
-      await LocalNotifications.schedule({
-        notifications: [
+      // Build notification config
+      const notificationConfig = {
+        title: title,
+        body: body,
+        id: this.notificationId++,
+        sound: 'default',
+        smallIcon: 'ic_stat_icon_config_sample',
+        iconColor: '#00d4aa',
+        channelId: 'person_alerts',
+        autoCancel: true,
+        extra: {
+          type: 'person_alert',
+          timestamp: timestamp
+        }
+      };
+
+      // Add screenshot as large icon and big picture style if available
+      if (screenshotBase64) {
+        // Use base64 image for largeIcon (thumbnail in notification)
+        notificationConfig.largeIcon = `data:image/jpeg;base64,${screenshotBase64}`;
+        // Use attachments for expanded big picture notification
+        notificationConfig.attachments = [
           {
-            title: title,
-            body: body,
-            id: this.notificationId++,
-            // No schedule = immediate notification
-            sound: 'default',
-            smallIcon: 'ic_stat_icon_config_sample',
-            iconColor: '#00d4aa',
-            channelId: 'person_alerts',
-            autoCancel: true,
-            extra: {
-              type: 'person_alert',
-              timestamp: timestamp
-            }
+            id: 'screenshot',
+            url: `data:image/jpeg;base64,${screenshotBase64}`
           }
-        ]
+        ];
+        // Enable big picture style on Android
+        notificationConfig.largeBody = body;
+        notificationConfig.summaryText = 'Tap to view live stream';
+      }
+
+      // Fire notification immediately
+      await LocalNotifications.schedule({
+        notifications: [notificationConfig]
       });
-      console.log('Local notification sent');
+      console.log('Local notification sent with screenshot');
     } catch (err) {
       console.error('Failed to send local notification:', err);
     }
@@ -1181,6 +1269,8 @@ class CamaiApp {
 
   closePersonAlert() {
     document.getElementById('person-alert').classList.add('hidden');
+    // Stop the live stream to save bandwidth
+    document.getElementById('alert-live-stream').src = '';
   }
 
   async enableBackgroundMode() {
