@@ -25,6 +25,10 @@ class PTZMoveRequest(BaseModel):
     tilt: float = 0  # -1.0 (down) to 1.0 (up)
 
 
+class AutoTrackRequest(BaseModel):
+    enabled: bool = True
+
+
 class PoseSettings(BaseModel):
     enabled: bool = False
 

@@ -153,14 +153,16 @@ class PTZController:
             logger.debug(traceback.format_exc())
             return False
 
-    def move(self, pan: float, tilt: float):
+    def move(self, pan: float, tilt: float) -> bool:
         """
         Move camera continuously.
         pan: -1.0 (left) to 1.0 (right)
         tilt: -1.0 (down) to 1.0 (up)
+        Returns True if command was sent, False otherwise.
         """
         if not self._connected:
-            return
+            logger.debug("PTZ move ignored: not connected")
+            return False
 
         now = time.time()
 
@@ -168,11 +170,13 @@ class PTZController:
         if self._is_moving and now - self._move_start_time > self._max_move_duration:
             logger.warning("PTZ safety stop: max move duration exceeded")
             self.stop()
-            return
+            return False
 
-        # Throttle commands
-        if now - self._last_command_time < self._command_interval:
-            return
+        # Throttle commands - but skip for manual control (single commands)
+        # Only apply throttle if _is_moving (continuous tracking mode)
+        if self._is_moving and now - self._last_command_time < self._command_interval:
+            logger.debug("PTZ move throttled")
+            return False
         self._last_command_time = now
 
         # Track when movement starts or direction changes significantly
@@ -184,16 +188,21 @@ class PTZController:
         try:
             request = self._ptz_service.create_type('ContinuousMove')
             request.ProfileToken = self._profile_token
+            velocity_pan = pan * self.config.track_speed
+            velocity_tilt = tilt * self.config.track_speed
             request.Velocity = {
-                'PanTilt': {'x': pan * self.config.track_speed, 'y': tilt * self.config.track_speed},
+                'PanTilt': {'x': velocity_pan, 'y': velocity_tilt},
                 'Zoom': {'x': 0}
             }
+            logger.debug(f"PTZ ContinuousMove: pan={velocity_pan:.2f}, tilt={velocity_tilt:.2f}")
             self._ptz_service.ContinuousMove(request)
             self._is_home = False
             self._is_moving = True
             self._last_movement_time = time.time()  # Track for parking system
+            return True
         except Exception as e:
             logger.error(f"PTZ move error: {e}")
+            return False
 
     def _direction_changed(self, new_direction: tuple) -> bool:
         """Check if movement direction changed significantly."""

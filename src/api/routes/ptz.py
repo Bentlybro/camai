@@ -2,7 +2,7 @@
 import logging
 from fastapi import APIRouter, HTTPException
 
-from ..models import PTZMoveRequest
+from ..models import PTZMoveRequest, AutoTrackRequest
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ptz", tags=["ptz"])
@@ -18,26 +18,32 @@ def set_state(state: dict):
 @router.post("/move")
 async def ptz_move(request: PTZMoveRequest):
     """Move PTZ camera manually."""
-    ptz = _state["ptz"]
-    if not ptz or not ptz._connected:
+    ptz = _state.get("ptz")
+    if not ptz:
+        logger.warning("PTZ move failed: PTZ not initialized")
+        raise HTTPException(status_code=503, detail="PTZ not initialized")
+    if not ptz._connected:
+        logger.warning("PTZ move failed: PTZ not connected")
         raise HTTPException(status_code=503, detail="PTZ not connected")
 
     # Temporarily disable auto-tracking while manually controlling
-    cfg = _state["config"]
+    cfg = _state.get("config")
     if cfg:
         cfg.enable_ptz = False
 
-    ptz.move(request.pan, request.tilt)
-    return {"status": "ok", "pan": request.pan, "tilt": request.tilt}
+    logger.info(f"PTZ move command: pan={request.pan}, tilt={request.tilt}")
+    success = ptz.move(request.pan, request.tilt)
+    return {"status": "ok" if success else "throttled", "pan": request.pan, "tilt": request.tilt, "sent": success}
 
 
 @router.post("/stop")
 async def ptz_stop():
     """Stop PTZ movement."""
-    ptz = _state["ptz"]
+    ptz = _state.get("ptz")
     if not ptz or not ptz._connected:
         raise HTTPException(status_code=503, detail="PTZ not connected")
 
+    logger.debug("PTZ stop command received")
     ptz._is_moving = True  # Force stop to send command
     ptz.stop()
     return {"status": "ok"}
@@ -55,15 +61,31 @@ async def ptz_status():
     }
 
 
+@router.post("/auto-track")
+async def set_auto_track(request: AutoTrackRequest):
+    """Enable or disable auto-tracking."""
+    cfg = _state["config"]
+    if not cfg:
+        raise HTTPException(status_code=503, detail="Config not available")
+
+    cfg.enable_ptz = request.enabled
+
+    return {
+        "status": "ok",
+        "auto_tracking": cfg.enable_ptz,
+    }
+
+
 @router.post("/home")
 async def ptz_home():
     """Go to home position."""
-    ptz = _state["ptz"]
+    ptz = _state.get("ptz")
     if not ptz or not ptz._connected:
         raise HTTPException(status_code=503, detail="PTZ not connected")
 
+    logger.info("PTZ home command received")
     success = ptz.go_home()
-    return {"status": "ok" if success else "failed"}
+    return {"status": "ok" if success else "failed", "sent": success}
 
 
 @router.get("/presets")
@@ -92,17 +114,18 @@ async def save_preset(name: str = None):
 @router.post("/presets/{token}/goto")
 async def goto_preset(token: str):
     """Go to a saved preset."""
-    ptz = _state["ptz"]
+    ptz = _state.get("ptz")
     if not ptz or not ptz._connected:
         raise HTTPException(status_code=503, detail="PTZ not connected")
 
     # Disable auto-tracking when using presets
-    cfg = _state["config"]
+    cfg = _state.get("config")
     if cfg:
         cfg.enable_ptz = False
 
+    logger.info(f"PTZ goto preset: {token}")
     success = ptz.goto_preset(token)
-    return {"status": "ok" if success else "failed"}
+    return {"status": "ok" if success else "failed", "sent": success}
 
 
 @router.delete("/presets/{token}")

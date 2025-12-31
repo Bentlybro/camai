@@ -587,7 +587,7 @@ class CamaiApp {
     if (!this.isConnected) return;
 
     try {
-      await fetch(`${this.serverUrl}/api/ptz/preset/${token}`, { method: 'POST' });
+      await fetch(`${this.serverUrl}/api/ptz/presets/${token}/goto`, { method: 'POST' });
     } catch (error) {
       console.error('Failed to go to preset:', error);
     }
