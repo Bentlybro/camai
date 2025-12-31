@@ -24,9 +24,8 @@ sys.path.insert(0, str(src_path))
 from config import get_config
 from capture import RTSPCapture
 from detector import YOLODetector, Detection
-from events import EventDetector, Event, EventType
+from events import EventDetector
 from notifications import NotificationManager
-from notifications_pkg.handlers import annotate_snapshot, extract_head_crop, create_combined_snapshot
 from stream import StreamServer, annotate_frame
 from ptz import PTZController, PTZConfig
 from pose import PoseEstimator
@@ -118,84 +117,14 @@ def main():
         # Send via WebSocket for in-app updates
         broadcast_alert(alert_data)
 
-        # Save screenshot for FCM notification
+        # Use the most recent annotated snapshot from the event system
+        # The FileLogger already creates annotated snapshots with bounding boxes and head crops
         image_url = None
-        if alert_data.get("screenshot"):
-            try:
-                import cv2
-                import numpy as np
-
-                # Save screenshot to snapshots directory
-                snapshot_dir = Path(cfg.snapshot_dir)
-                snapshot_dir.mkdir(parents=True, exist_ok=True)
-
-                timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"alert_{timestamp_str}.jpg"
-                filepath = snapshot_dir / filename
-
-                # Decode the raw JPEG to annotate it
-                jpeg_bytes = alert_data["screenshot"]
-                nparr = np.frombuffer(jpeg_bytes, np.uint8)
-                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-                if frame is not None:
-                    # Get detection info to create bounding box
-                    detections = alert_data.get("detections", [])
-                    keypoints = api.get_state("latest_keypoints")
-
-                    # Find person detection with highest confidence
-                    best_detection = None
-                    best_conf = 0
-                    for d in detections:
-                        conf = d.get("confidence", 0)
-                        if conf > best_conf:
-                            best_conf = conf
-                            best_detection = d
-
-                    # Try to get bbox from current tracked detections
-                    bbox = None
-                    if best_detection:
-                        # Get bbox from the events tracker
-                        events_tracker = api.get_state("events")
-                        if events_tracker:
-                            for obj in events_tracker._objects.values():
-                                if obj.class_name == "person":
-                                    bbox = obj.bbox
-                                    break
-
-                    # Create annotated snapshot with bounding box and head crop
-                    if bbox:
-                        # Create a mock Event for annotation
-                        event = Event(
-                            event_type=EventType.PERSON_DETECTED,
-                            timestamp=time.time(),
-                            class_name="person",
-                            confidence=best_conf,
-                            bbox=bbox,
-                            description="Person detected"
-                        )
-
-                        # Extract head crop
-                        head_crop = extract_head_crop(frame, bbox, keypoints[0] if keypoints else None)
-
-                        # Create combined snapshot with annotation and head inset
-                        annotated_frame = create_combined_snapshot(frame, head_crop, event)
-                    else:
-                        # No bbox available, just use raw frame
-                        annotated_frame = frame
-
-                    # Encode annotated frame as JPEG
-                    _, buf = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                    with open(filepath, 'wb') as f:
-                        f.write(buf.tobytes())
-                else:
-                    # Fallback: write raw JPEG if decode failed
-                    with open(filepath, 'wb') as f:
-                        f.write(jpeg_bytes)
-
+        try:
+            # Get the last snapshot path from the file logger
+            if notifier._file_logger and notifier._file_logger._last_snapshot_path:
                 # Get server IP for the image URL
                 try:
-                    # Get the IP address of the machine
                     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                     s.connect(("8.8.8.8", 80))
                     server_ip = s.getsockname()[0]
@@ -203,10 +132,11 @@ def main():
                 except Exception:
                     server_ip = "localhost"
 
-                image_url = f"http://{server_ip}:{cfg.stream_port}/api/snapshots/{filename}"
-                log.debug(f"Alert snapshot saved: {filename}")
-            except Exception as e:
-                log.warning(f"Failed to save alert snapshot: {e}")
+                snapshot_path = notifier._file_logger._last_snapshot_path
+                image_url = f"http://{server_ip}:{cfg.stream_port}{snapshot_path}"
+                log.debug(f"Using existing annotated snapshot: {snapshot_path}")
+        except Exception as e:
+            log.warning(f"Failed to get snapshot path: {e}")
 
         # Send via Firebase for push notifications
         if firebase and firebase.initialized:

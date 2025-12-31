@@ -2,8 +2,8 @@
 // Simple vanilla JS app that works in both browser and Capacitor WebView
 
 // App version for OTA updates
-const APP_VERSION = '1.0.3';
-const APP_VERSION_CODE = 10003;
+const APP_VERSION = '1.0.4';
+const APP_VERSION_CODE = 10004;
 
 // Import Capacitor plugins when available
 let LocalNotifications = null;
@@ -1299,8 +1299,17 @@ class CamaiApp {
   }
 
   connectWebSocket() {
+    // Clear any pending reconnect
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
+    // Close existing WebSocket without triggering reconnect
     if (this.ws) {
+      this.ws.onclose = null; // Remove handler to prevent reconnect loop
       this.ws.close();
+      this.ws = null;
     }
 
     // Build WebSocket URL with token for authentication

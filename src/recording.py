@@ -92,6 +92,8 @@ class RecordingManager:
         # Detection threshold - require consecutive frames before triggering
         self._consecutive_detections = 0
         self._detection_threshold = 3  # Need 3+ consecutive frames (~0.2s at 15fps)
+        self._detection_grace_frames = 0  # Grace period counter for brief detection gaps
+        self._max_grace_frames = 10  # Allow up to 10 frames (~0.7s at 15fps) of no detection
 
         # Alert cooldown (don't spam alerts)
         self._last_alert_time: float = 0
@@ -129,6 +131,7 @@ class RecordingManager:
 
             if person_detected:
                 self._consecutive_detections += 1
+                self._detection_grace_frames = 0  # Reset grace counter when person seen
                 self._last_person_seen = now
 
                 # Count people in current detections
@@ -172,14 +175,19 @@ class RecordingManager:
                         self._start_recording(now)
 
             else:
-                # Reset consecutive counter when no person detected
-                self._consecutive_detections = 0
-                self._current_person_count = 0
+                # Use grace period before resetting - handles brief detection gaps
+                if self._consecutive_detections > 0:
+                    self._detection_grace_frames += 1
+                    if self._detection_grace_frames >= self._max_grace_frames:
+                        # Grace period expired, now reset
+                        self._consecutive_detections = 0
+                        self._detection_grace_frames = 0
+                        self._current_person_count = 0
 
-                if self._person_visible:
-                    # Person just left view
-                    self._person_visible = False
-                    self._alerted_person_count = 0  # Reset so next detection triggers fresh alert
+                        if self._person_visible:
+                            # Person actually left view (not just a brief gap)
+                            self._person_visible = False
+                            self._alerted_person_count = 0  # Reset so next detection triggers fresh alert
 
                 if self._recording:
                     # Check if cooldown expired

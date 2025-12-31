@@ -1,6 +1,6 @@
 {
   "name": "camai-mobile",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "CAMAI Mobile App - Remote camera monitoring",
   "module": "index.ts",
   "type": "module",

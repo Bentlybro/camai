@@ -857,6 +857,19 @@ class CAMAIDashboard {
 
     // WebSocket
     async setupWebSocket() {
+        // Clear any pending reconnect
+        if (this.wsReconnectTimeout) {
+            clearTimeout(this.wsReconnectTimeout);
+            this.wsReconnectTimeout = null;
+        }
+
+        // Close existing WebSocket without triggering reconnect
+        if (this.ws) {
+            this.ws.onclose = null; // Remove handler to prevent reconnect loop
+            this.ws.close();
+            this.ws = null;
+        }
+
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
         // Get stream token for WebSocket auth
@@ -864,7 +877,7 @@ class CAMAIDashboard {
 
         if (!token) {
             console.error('No stream token available for WebSocket, retrying in 2s...');
-            setTimeout(() => this.setupWebSocket(), 2000);
+            this.wsReconnectTimeout = setTimeout(() => this.setupWebSocket(), 2000);
             return;
         }
 
@@ -887,7 +900,8 @@ class CAMAIDashboard {
             this.ws.onclose = () => {
                 console.log('WebSocket disconnected');
                 this.updateConnectionStatus(false);
-                setTimeout(() => this.setupWebSocket(), this.reconnectInterval);
+                // Schedule reconnect (will be cleared if setupWebSocket is called directly)
+                this.wsReconnectTimeout = setTimeout(() => this.setupWebSocket(), this.reconnectInterval);
             };
 
             this.ws.onerror = (error) => {

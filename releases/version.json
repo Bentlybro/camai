@@ -1,8 +1,8 @@
 {
-    "version": "1.0.3",
-    "version_code": 10003,
-    "release_notes": "Role-based UI visibility",
-    "apk_filename": "camai-1.0.3.apk",
-    "apk_size": 3681921,
+    "version": "1.0.4",
+    "version_code": 10004,
+    "release_notes": "Fixed WebSocket loop and notification photos and UI polish and bug fixes",
+    "apk_filename": "camai-1.0.4.apk",
+    "apk_size": 3682297,
     "required": false
 }

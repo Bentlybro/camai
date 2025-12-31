@@ -120,12 +120,12 @@ class EventDetector:
         # Time-based cooldowns for moving objects
         self._vehicle_detected_cooldown = 10.0  # Seconds between vehicle_detected
         self._last_vehicle_detected = 0
-        self._person_detected_cooldown = 5.0  # Seconds between person_detected
+        self._person_detected_cooldown = 30.0  # Seconds between person_detected (matches recording alert)
         self._last_person_detected = 0
 
         # Global rate limiting
         self._notification_times: List[float] = []
-        self._max_notifications_per_minute = 5  # Max 5 notifications per minute total
+        self._max_notifications_per_minute = 3  # Max 3 notifications per minute total
 
         # Startup flag - register existing vehicles as parked after a delay
         self._startup_time = time.time()
@@ -667,10 +667,12 @@ class EventDetector:
                     events.append(event)
                     self._fire(event)
 
-        # Remove stale objects - longer timeout for vehicles (15s) to handle YOLO flickering
+        # Remove stale objects - longer timeouts to handle detection flickering
+        # Vehicles: 15s (YOLO often loses parked cars briefly)
+        # People: 5s (handles brief gaps from fast movement or night conditions)
         stale = []
         for oid, obj in self._objects.items():
-            timeout = 15.0 if obj.class_name in ("car", "truck") else 3.0
+            timeout = 15.0 if obj.class_name in ("car", "truck") else 5.0
             if now - obj.last_seen > timeout:
                 stale.append(oid)
         for oid in stale:
