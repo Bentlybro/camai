@@ -14,6 +14,7 @@
         </div>
         <div class="nav-links">
             <a href="#" class="nav-link active" data-page="dashboard">Dashboard</a>
+            <a href="#" class="nav-link" data-page="recordings">Recordings</a>
             <a href="#" class="nav-link" data-page="stats">Stats</a>
             <a href="#" class="nav-link" data-page="events">Events</a>
             <a href="#" class="nav-link" data-page="system">System</a>
@@ -198,6 +199,42 @@
                         <div class="event-item placeholder">No events yet</div>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Recordings Page -->
+        <div id="page-recordings" class="page">
+            <div class="page-header">
+                <h2>Recordings</h2>
+                <div class="recordings-controls">
+                    <input type="date" id="recording-date-filter" class="form-input">
+                    <button class="btn btn-small" id="btn-refresh-recordings">Refresh</button>
+                </div>
+            </div>
+
+            <!-- Storage Stats -->
+            <div class="recordings-stats-bar">
+                <div class="recording-stat">
+                    <span class="stat-value" id="rec-total-count">--</span>
+                    <span class="stat-label">Recordings</span>
+                </div>
+                <div class="recording-stat">
+                    <span class="stat-value" id="rec-total-duration">--</span>
+                    <span class="stat-label">Total Duration</span>
+                </div>
+                <div class="recording-stat">
+                    <span class="stat-value" id="rec-total-size">--</span>
+                    <span class="stat-label">Storage Used</span>
+                </div>
+                <div class="recording-stat">
+                    <span class="stat-value" id="rec-retention">30</span>
+                    <span class="stat-label">Retention Days</span>
+                </div>
+            </div>
+
+            <!-- Recordings Grid -->
+            <div class="recordings-grid" id="recordings-grid">
+                <div class="recording-empty">Loading recordings...</div>
             </div>
         </div>
 

@@ -26,6 +26,26 @@ class CAMAIDashboard {
         this.startStatsPolling();
         this.startDetectionsPolling();
         this.checkPTZStatus();
+        this.setupRecordingsControls();
+    }
+
+    setupRecordingsControls() {
+        const dateFilter = document.getElementById('recording-date-filter');
+        const refreshBtn = document.getElementById('btn-refresh-recordings');
+
+        if (dateFilter) {
+            dateFilter.addEventListener('change', (e) => {
+                this.loadRecordings(e.target.value || null);
+            });
+        }
+
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => {
+                const date = dateFilter?.value || null;
+                this.loadRecordings(date);
+                this.loadRecordingStats();
+            });
+        }
     }
 
     // Fullscreen
@@ -100,6 +120,9 @@ class CAMAIDashboard {
         } else if (pageName === 'system') {
             this.loadSystemStats();
             this.startSystemStatsPolling();
+        } else if (pageName === 'recordings') {
+            this.loadRecordings();
+            this.loadRecordingStats();
         }
 
         // Stop polling when leaving pages
@@ -183,12 +206,18 @@ class CAMAIDashboard {
     closeModal() {
         const modal = document.getElementById('event-modal');
         if (modal) {
-            modal.classList.remove('active');
+            modal.classList.remove('active', 'recording-modal');
             // Stop video if playing
             const video = document.getElementById('modal-video');
             if (video) {
                 video.pause();
                 video.src = '';
+            }
+            // Also stop any dynamically added videos
+            const embeddedVideo = modal.querySelector('.modal-media video');
+            if (embeddedVideo) {
+                embeddedVideo.pause();
+                embeddedVideo.src = '';
             }
         }
     }
@@ -1456,6 +1485,147 @@ class CAMAIDashboard {
         const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    // ==================== RECORDINGS ====================
+
+    async loadRecordings(date = null) {
+        const grid = document.getElementById('recordings-grid');
+        if (!grid) return;
+
+        try {
+            let url = '/api/recordings?limit=50';
+            if (date) url += `&date=${date}`;
+
+            const res = await fetch(url);
+            const data = await res.json();
+
+            if (!data.recordings || data.recordings.length === 0) {
+                grid.innerHTML = '<div class="recording-empty">No recordings found</div>';
+                return;
+            }
+
+            grid.innerHTML = data.recordings.map(rec => `
+                <div class="recording-card" data-id="${rec.id}" data-path="${rec.path}">
+                    <div class="recording-thumbnail">
+                        ${rec.thumbnail_path
+                            ? `<img src="/api/recordings/${rec.id}/thumbnail" alt="Thumbnail">`
+                            : '<span class="no-thumb">🎬</span>'
+                        }
+                        <span class="recording-duration-badge">${rec.formatted_duration || '--:--'}</span>
+                    </div>
+                    <div class="recording-info">
+                        <div class="recording-title">${rec.filename || 'Recording'}</div>
+                        <div class="recording-meta">
+                            <span>${rec.formatted_time || this.formatTimestamp(rec.start_time)}</span>
+                            <span>${rec.formatted_size || '--'}</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            // Add click handlers
+            grid.querySelectorAll('.recording-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const id = card.dataset.id;
+                    this.openRecordingModal(id, data.recordings.find(r => r.id == id));
+                });
+            });
+
+        } catch (err) {
+            console.error('Failed to load recordings:', err);
+            grid.innerHTML = '<div class="recording-empty">Failed to load recordings</div>';
+        }
+    }
+
+    async loadRecordingStats() {
+        try {
+            const res = await fetch('/api/recordings/stats');
+            const stats = await res.json();
+
+            const countEl = document.getElementById('rec-total-count');
+            const durationEl = document.getElementById('rec-total-duration');
+            const sizeEl = document.getElementById('rec-total-size');
+            const retentionEl = document.getElementById('rec-retention');
+
+            if (countEl) countEl.textContent = stats.total_recordings || 0;
+            if (sizeEl) sizeEl.textContent = stats.formatted_size || '0 GB';
+            if (durationEl) durationEl.textContent = stats.formatted_duration || '0h 0m';
+            if (retentionEl && stats.storage?.retention_days) {
+                retentionEl.textContent = stats.storage.retention_days;
+            }
+
+        } catch (err) {
+            console.error('Failed to load recording stats:', err);
+        }
+    }
+
+    openRecordingModal(id, recording) {
+        const modal = document.getElementById('event-modal');
+        if (!modal) return;
+
+        const title = document.getElementById('modal-title');
+        const mediaContainer = modal.querySelector('.modal-media');
+        const detailsContainer = modal.querySelector('.modal-details');
+
+        if (title) title.textContent = recording?.filename || 'Recording';
+
+        // Show video player
+        if (mediaContainer) {
+            mediaContainer.innerHTML = `
+                <video controls autoplay>
+                    <source src="/api/recordings/${id}/stream" type="video/mp4">
+                    Your browser does not support video playback.
+                </video>
+            `;
+        }
+
+        // Show details
+        if (detailsContainer) {
+            detailsContainer.innerHTML = `
+                <div class="detail-row">
+                    <span class="detail-label">Date</span>
+                    <span class="detail-value">${recording?.formatted_time || '--'}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Duration</span>
+                    <span class="detail-value">${recording?.formatted_duration || '--'}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Size</span>
+                    <span class="detail-value">${recording?.formatted_size || '--'}</span>
+                </div>
+                <div class="recording-actions">
+                    <button class="btn-danger" onclick="dashboard.deleteRecording(${id})">Delete Recording</button>
+                </div>
+            `;
+        }
+
+        modal.classList.add('active', 'recording-modal');
+    }
+
+    async deleteRecording(id) {
+        if (!confirm('Are you sure you want to delete this recording?')) return;
+
+        try {
+            const res = await fetch(`/api/recordings/${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                this.closeModal();
+                this.loadRecordings();
+                this.loadRecordingStats();
+            } else {
+                alert('Failed to delete recording');
+            }
+        } catch (err) {
+            console.error('Failed to delete recording:', err);
+            alert('Failed to delete recording');
+        }
+    }
+
+    formatTimestamp(ts) {
+        if (!ts) return '--';
+        const date = new Date(ts * 1000);
+        return date.toLocaleString();
     }
 }
 

@@ -1,6 +1,26 @@
 // CAMAI Mobile App
 // Simple vanilla JS app that works in both browser and Capacitor WebView
 
+// Import Capacitor plugins when available
+let LocalNotifications = null;
+
+// Initialize Capacitor plugins when DOM is ready
+document.addEventListener('DOMContentLoaded', async () => {
+  if (window.Capacitor && window.Capacitor.Plugins) {
+    LocalNotifications = window.Capacitor.Plugins.LocalNotifications;
+
+    // Request notification permissions
+    if (LocalNotifications) {
+      try {
+        const permResult = await LocalNotifications.requestPermissions();
+        console.log('Notification permission:', permResult.display);
+      } catch (e) {
+        console.log('Notifications not available:', e);
+      }
+    }
+  }
+});
+
 class CamaiApp {
   constructor() {
     this.serverUrl = null;
@@ -14,6 +34,7 @@ class CamaiApp {
     this.eventsCache = [];
     this.recordingsCache = [];
     this.currentRecording = null;
+    this.notificationId = 1;
 
     this.init();
   }
@@ -957,10 +978,10 @@ class CamaiApp {
     // Set detections info
     const detections = data.detections || [];
     const personCount = detections.filter(d => d.class === 'person').length;
-    document.getElementById('alert-detections').textContent =
-      personCount > 1 ? `${personCount} people detected` : '1 person detected';
+    const alertText = personCount > 1 ? `${personCount} people detected` : '1 person detected';
+    document.getElementById('alert-detections').textContent = alertText;
 
-    // Show alert
+    // Show alert popup in app
     document.getElementById('person-alert').classList.remove('hidden');
 
     // Vibrate if supported
@@ -968,10 +989,45 @@ class CamaiApp {
       navigator.vibrate([200, 100, 200]);
     }
 
+    // Send local notification (works even when app is in background)
+    this.sendLocalNotification('Person Detected', alertText, timestamp);
+
     // Auto-hide after 10 seconds
     setTimeout(() => {
       this.closePersonAlert();
     }, 10000);
+  }
+
+  async sendLocalNotification(title, body, timestamp) {
+    if (!LocalNotifications) {
+      console.log('Local notifications not available');
+      return;
+    }
+
+    try {
+      await LocalNotifications.schedule({
+        notifications: [
+          {
+            title: title,
+            body: body,
+            id: this.notificationId++,
+            schedule: { at: new Date(timestamp) },
+            sound: 'default',
+            smallIcon: 'ic_stat_camera',
+            largeIcon: 'ic_launcher',
+            iconColor: '#00d4aa',
+            actionTypeId: 'OPEN_APP',
+            extra: {
+              type: 'person_alert',
+              timestamp: timestamp
+            }
+          }
+        ]
+      });
+      console.log('Local notification scheduled');
+    } catch (err) {
+      console.error('Failed to send local notification:', err);
+    }
   }
 
   closePersonAlert() {

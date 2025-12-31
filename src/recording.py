@@ -174,17 +174,37 @@ class RecordingManager:
         filename = f"person_{timestamp_str}.mp4"
         self._current_file = date_dir / filename
 
-        # Initialize video writer
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        self._writer = cv2.VideoWriter(
-            str(self._current_file),
-            fourcc,
-            self.fps,
-            self.resolution
-        )
+        # Initialize video writer with H.264 codec for browser compatibility
+        # Try multiple codecs in order of preference
+        codecs_to_try = [
+            ('avc1', '.mp4'),  # H.264 - best browser support
+            ('H264', '.mp4'),  # H.264 alternative
+            ('X264', '.mp4'),  # x264 encoder
+            ('mp4v', '.mp4'),  # Fallback - may not play in browser
+        ]
 
-        if not self._writer.isOpened():
-            logger.error(f"Failed to open video writer: {self._current_file}")
+        self._writer = None
+        for codec, ext in codecs_to_try:
+            try:
+                fourcc = cv2.VideoWriter_fourcc(*codec)
+                test_writer = cv2.VideoWriter(
+                    str(self._current_file),
+                    fourcc,
+                    self.fps,
+                    self.resolution
+                )
+                if test_writer.isOpened():
+                    self._writer = test_writer
+                    logger.debug(f"Using video codec: {codec}")
+                    break
+                else:
+                    test_writer.release()
+            except Exception as e:
+                logger.debug(f"Codec {codec} not available: {e}")
+                continue
+
+        if not self._writer or not self._writer.isOpened():
+            logger.error(f"Failed to open video writer: {self._current_file} (no compatible codec found)")
             self._writer = None
             return
 
