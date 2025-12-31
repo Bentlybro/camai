@@ -41,9 +41,8 @@ class CAMAIDashboard {
         this.initDashboard();
     }
 
-    initDashboard() {
+    async initDashboard() {
         this.setupNavigation();
-        this.setupWebSocket();
         this.setupControls();
         this.setupPTZControls();
         this.setupModal();
@@ -58,7 +57,11 @@ class CAMAIDashboard {
         this.startDetectionsPolling();
         this.checkPTZStatus();
         this.setupRecordingsControls();
+
+        // Get stream token first, then setup stream and WebSocket
+        await this.getStreamToken();
         this.updateStreamWithToken();
+        await this.setupWebSocket();
         this.startTokenRefresh();
     }
 
@@ -590,7 +593,11 @@ class CAMAIDashboard {
             }
         } else if (event.snapshot_path) {
             if (snapshot) {
-                snapshot.src = event.snapshot_path;
+                // Add stream token for auth
+                const snapshotUrl = this.streamToken
+                    ? `${event.snapshot_path}?token=${this.streamToken}`
+                    : event.snapshot_path;
+                snapshot.src = snapshotUrl;
                 snapshot.style.display = 'block';
             }
         } else {
@@ -1501,12 +1508,17 @@ class CAMAIDashboard {
                 if (snapshots.length === 0) {
                     grid.innerHTML = '<p style="color: var(--text-secondary);">No snapshots yet</p>';
                 } else {
-                    grid.innerHTML = snapshots.map(s => `
-                        <div class="snapshot-item" onclick="window.open('${s.path}', '_blank')">
-                            <img src="${s.path}" alt="${s.filename}" loading="lazy">
-                            <div class="snapshot-info">${s.filename}</div>
-                        </div>
-                    `).join('');
+                    // Add token to snapshot URLs
+                    const token = this.streamToken || '';
+                    grid.innerHTML = snapshots.map(s => {
+                        const pathWithToken = token ? `${s.path}?token=${token}` : s.path;
+                        return `
+                            <div class="snapshot-item" onclick="window.open('${pathWithToken}', '_blank')">
+                                <img src="${pathWithToken}" alt="${s.filename}" loading="lazy">
+                                <div class="snapshot-info">${s.filename}</div>
+                            </div>
+                        `;
+                    }).join('');
                 }
             }
         } catch (e) {
@@ -1909,11 +1921,14 @@ class CAMAIDashboard {
                 return;
             }
 
+            // Get stream token for thumbnails
+            const thumbToken = this.streamToken || '';
+
             grid.innerHTML = data.recordings.map(rec => `
                 <div class="recording-card" data-id="${rec.id}" data-path="${rec.path}">
                     <div class="recording-thumbnail">
                         ${rec.thumbnail_path
-                            ? `<img src="/api/recordings/${rec.id}/thumbnail" alt="Thumbnail">`
+                            ? `<img src="/api/recordings/${rec.id}/thumbnail?token=${thumbToken}" alt="Thumbnail">`
                             : '<span class="no-thumb">🎬</span>'
                         }
                         <span class="recording-duration-badge">${rec.formatted_duration || '--:--'}</span>

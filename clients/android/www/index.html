@@ -25,17 +25,71 @@
         <h1>CAMAI</h1>
         <p class="subtitle">AI Camera Monitor</p>
 
-        <div class="input-group">
-          <label for="server-ip">Server Address</label>
-          <input type="text" id="server-ip" placeholder="192.168.1.100" autocomplete="off">
+        <!-- Server Connection Form -->
+        <div id="server-form">
+          <div class="input-group">
+            <label for="server-ip">Server Address</label>
+            <input type="text" id="server-ip" placeholder="192.168.1.100" autocomplete="off">
+          </div>
+
+          <div class="input-group">
+            <label for="server-port">Port</label>
+            <input type="number" id="server-port" placeholder="8080" value="8080">
+          </div>
+
+          <button id="connect-btn" class="btn-primary">Connect</button>
         </div>
 
-        <div class="input-group">
-          <label for="server-port">Port</label>
-          <input type="number" id="server-port" placeholder="8080" value="8080">
+        <!-- Login Form -->
+        <div id="login-form" class="hidden">
+          <div class="auth-form-header">
+            <button id="back-to-server" class="icon-btn back-btn">
+              <svg viewBox="0 0 24 24" width="24" height="24">
+                <path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+              </svg>
+            </button>
+            <h2>Login</h2>
+          </div>
+          <div class="input-group">
+            <label for="login-username">Username</label>
+            <input type="text" id="login-username" placeholder="Enter username" autocomplete="username">
+          </div>
+          <div class="input-group">
+            <label for="login-password">Password</label>
+            <input type="password" id="login-password" placeholder="Enter password" autocomplete="current-password">
+          </div>
+          <div id="login-error" class="form-error hidden"></div>
+          <button id="login-btn" class="btn-primary">Login</button>
+          <p class="auth-link">Don't have an account? <a href="#" id="show-register">Register</a></p>
         </div>
 
-        <button id="connect-btn" class="btn-primary">Connect</button>
+        <!-- Register Form -->
+        <div id="register-form" class="hidden">
+          <div class="auth-form-header">
+            <button id="back-to-login" class="icon-btn back-btn">
+              <svg viewBox="0 0 24 24" width="24" height="24">
+                <path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+              </svg>
+            </button>
+            <h2>Register</h2>
+          </div>
+          <div class="input-group">
+            <label for="reg-username">Username</label>
+            <input type="text" id="reg-username" placeholder="Choose username" autocomplete="username">
+          </div>
+          <div class="input-group">
+            <label for="reg-password">Password</label>
+            <input type="password" id="reg-password" placeholder="Choose password" autocomplete="new-password">
+          </div>
+          <div class="input-group">
+            <label for="reg-password2">Confirm Password</label>
+            <input type="password" id="reg-password2" placeholder="Confirm password" autocomplete="new-password">
+          </div>
+          <div id="register-error" class="form-error hidden"></div>
+          <div id="register-success" class="form-success hidden"></div>
+          <button id="register-btn" class="btn-primary">Register</button>
+          <p class="auth-link">Already have an account? <a href="#" id="show-login">Login</a></p>
+        </div>
 
         <div id="connection-status" class="status"></div>
       </div>
@@ -50,11 +104,14 @@
           <span id="header-status">Connected</span>
         </div>
         <h1>CAMAI</h1>
-        <button id="settings-btn" class="icon-btn">
+        <div class="header-right">
+          <span id="header-user" class="header-user"></span>
+          <button id="settings-btn" class="icon-btn">
           <svg viewBox="0 0 24 24" width="24" height="24">
             <path fill="currentColor" d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66Z"/>
           </svg>
         </button>
+        </div>
       </header>
 
       <!-- Tab Navigation -->
@@ -358,6 +415,19 @@
             </button>
           </div>
           <div class="modal-body">
+            <div class="setting-group">
+              <h3>Account</h3>
+              <div class="setting-row">
+                <span>User</span>
+                <span id="setting-user">--</span>
+              </div>
+              <div class="setting-row">
+                <span>Role</span>
+                <span id="setting-role">--</span>
+              </div>
+              <button id="logout-btn" class="btn-secondary">Logout</button>
+            </div>
+
             <div class="setting-group">
               <h3>Connection</h3>
               <div class="setting-row">

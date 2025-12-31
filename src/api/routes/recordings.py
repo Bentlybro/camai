@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import FileResponse, StreamingResponse
 
 from database import get_database
-from auth.dependencies import get_current_user, require_admin, CurrentUser
+from auth.dependencies import get_current_user, require_admin, require_stream_token, CurrentUser
 
 logger = logging.getLogger(__name__)
 
@@ -287,8 +287,8 @@ async def download_recording(recording_id: int, user: CurrentUser = Depends(get_
 
 
 @router.get("/{recording_id}/thumbnail")
-async def get_thumbnail(recording_id: int, user: CurrentUser = Depends(get_current_user)):
-    """Get recording thumbnail (authenticated)."""
+async def get_thumbnail(recording_id: int, user: CurrentUser = Depends(require_stream_token)):
+    """Get recording thumbnail (requires stream token via ?token=xxx)."""
     try:
         db = get_database()
         recording = db.get_recording(recording_id)

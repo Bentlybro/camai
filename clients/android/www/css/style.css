@@ -1257,3 +1257,96 @@ html, body {
   background: var(--bg-card);
   border-radius: 2px;
 }
+
+/* Authentication Forms */
+.auth-form-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.auth-form-header h2 {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.back-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 4px;
+}
+
+.back-btn:hover, .back-btn:active {
+  color: var(--accent);
+}
+
+.form-error {
+  background: rgba(255, 71, 87, 0.15);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.form-success {
+  background: rgba(0, 255, 136, 0.15);
+  border: 1px solid var(--success);
+  color: var(--success);
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.auth-link {
+  margin-top: 20px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.auth-link a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.auth-link a:hover, .auth-link a:active {
+  text-decoration: underline;
+}
+
+/* Header User Info */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-user {
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Button Styles */
+.btn-secondary {
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover, .btn-secondary:active {
+  background: rgba(0, 212, 255, 0.1);
+}

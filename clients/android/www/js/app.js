@@ -161,6 +161,14 @@ class CamaiApp {
     this.lastResumeTime = 0; // Debounce app resume
     this.isInBackground = false;
 
+    // Authentication state
+    this.accessToken = null;
+    this.refreshToken = null;
+    this.streamToken = null;
+    this.streamTokenExpiry = null;
+    this.user = null;
+    this.tokenRefreshInterval = null;
+
     // Store instance for background handlers
     camaiAppInstance = this;
 
@@ -170,17 +178,297 @@ class CamaiApp {
   init() {
     // Load saved settings from localStorage
     this.loadSettings();
+    this.loadTokens();
 
     // Setup event listeners
     this.setupEventListeners();
 
-    // Auto-connect if we have saved server
-    if (this.serverUrl) {
+    // Auto-connect if we have saved server and tokens
+    if (this.serverUrl && this.accessToken) {
       const urlParts = this.serverUrl.replace(/^https?:\/\//, '').split(':');
       document.getElementById('server-ip').value = urlParts[0];
       document.getElementById('server-port').value = urlParts[1] || '8080';
       this.connect();
+    } else if (this.serverUrl) {
+      // Have server but no token - show login
+      const urlParts = this.serverUrl.replace(/^https?:\/\//, '').split(':');
+      document.getElementById('server-ip').value = urlParts[0];
+      document.getElementById('server-port').value = urlParts[1] || '8080';
     }
+  }
+
+  // ==================== AUTHENTICATION ====================
+
+  loadTokens() {
+    try {
+      this.accessToken = localStorage.getItem('camai_access_token');
+      this.refreshToken = localStorage.getItem('camai_refresh_token');
+      const userJson = localStorage.getItem('camai_user');
+      if (userJson) {
+        this.user = JSON.parse(userJson);
+      }
+    } catch (e) {
+      console.log('Could not load tokens:', e);
+    }
+  }
+
+  saveTokens(accessToken, refreshToken, user) {
+    this.accessToken = accessToken;
+    this.refreshToken = refreshToken;
+    this.user = user;
+    localStorage.setItem('camai_access_token', accessToken);
+    localStorage.setItem('camai_refresh_token', refreshToken);
+    localStorage.setItem('camai_user', JSON.stringify(user));
+  }
+
+  clearTokens() {
+    this.accessToken = null;
+    this.refreshToken = null;
+    this.streamToken = null;
+    this.user = null;
+    localStorage.removeItem('camai_access_token');
+    localStorage.removeItem('camai_refresh_token');
+    localStorage.removeItem('camai_user');
+  }
+
+  async validateToken() {
+    if (!this.accessToken || !this.serverUrl) return false;
+
+    try {
+      const response = await fetch(`${this.serverUrl}/api/auth/me`, {
+        headers: { 'Authorization': `Bearer ${this.accessToken}` }
+      });
+
+      if (response.ok) {
+        this.user = await response.json();
+        localStorage.setItem('camai_user', JSON.stringify(this.user));
+        return true;
+      }
+
+      // Try to refresh if access token expired
+      if (response.status === 401 && this.refreshToken) {
+        return await this.refreshAccessToken();
+      }
+
+      return false;
+    } catch (e) {
+      console.error('Token validation failed:', e);
+      return false;
+    }
+  }
+
+  async refreshAccessToken() {
+    if (!this.refreshToken || !this.serverUrl) return false;
+
+    try {
+      const response = await fetch(`${this.serverUrl}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: this.refreshToken })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        this.accessToken = data.access_token;
+        localStorage.setItem('camai_access_token', data.access_token);
+        return true;
+      }
+
+      return false;
+    } catch (e) {
+      console.error('Token refresh failed:', e);
+      return false;
+    }
+  }
+
+  startTokenRefresh() {
+    // Refresh access token every 25 minutes (before 30 min expiry)
+    this.tokenRefreshInterval = setInterval(async () => {
+      await this.refreshAccessToken();
+    }, 25 * 60 * 1000);
+
+    // Refresh stream token every 4 minutes (before 5 min expiry)
+    setInterval(async () => {
+      await this.refreshStreamToken();
+    }, 4 * 60 * 1000);
+  }
+
+  async refreshStreamToken() {
+    try {
+      const response = await this.authFetch(`${this.serverUrl}/api/auth/stream-token`);
+      if (response.ok) {
+        const data = await response.json();
+        this.streamToken = data.token;
+        this.streamTokenExpiry = Date.now() + (data.expires_in * 1000);
+        this.updateStream();
+      }
+    } catch (e) {
+      console.error('Failed to refresh stream token:', e);
+    }
+  }
+
+  async getStreamToken() {
+    // If we have a valid stream token, use it
+    if (this.streamToken && this.streamTokenExpiry && Date.now() < this.streamTokenExpiry - 30000) {
+      return this.streamToken;
+    }
+
+    // Otherwise get a new one
+    await this.refreshStreamToken();
+    return this.streamToken;
+  }
+
+  // Wrapper for fetch with auth headers
+  async authFetch(url, options = {}) {
+    if (!options.headers) options.headers = {};
+    if (this.accessToken) {
+      options.headers['Authorization'] = `Bearer ${this.accessToken}`;
+    }
+
+    const response = await fetch(url, options);
+
+    // If unauthorized, try to refresh token
+    if (response.status === 401 && this.refreshToken) {
+      const refreshed = await this.refreshAccessToken();
+      if (refreshed) {
+        options.headers['Authorization'] = `Bearer ${this.accessToken}`;
+        return fetch(url, options);
+      }
+    }
+
+    return response;
+  }
+
+  showLoginScreen() {
+    // Show login form in setup screen
+    document.getElementById('server-form').classList.add('hidden');
+    document.getElementById('login-form').classList.remove('hidden');
+    document.getElementById('register-form').classList.add('hidden');
+  }
+
+  showRegisterScreen() {
+    document.getElementById('server-form').classList.add('hidden');
+    document.getElementById('login-form').classList.add('hidden');
+    document.getElementById('register-form').classList.remove('hidden');
+  }
+
+  showServerForm() {
+    document.getElementById('server-form').classList.remove('hidden');
+    document.getElementById('login-form').classList.add('hidden');
+    document.getElementById('register-form').classList.add('hidden');
+  }
+
+  async handleLogin() {
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    const errorDiv = document.getElementById('login-error');
+
+    if (!username || !password) {
+      errorDiv.textContent = 'Please enter username and password';
+      errorDiv.classList.remove('hidden');
+      return;
+    }
+
+    try {
+      this.showStatus('Logging in...', '');
+
+      const response = await fetch(`${this.serverUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        this.saveTokens(data.access_token, data.refresh_token, data.user);
+        errorDiv.classList.add('hidden');
+        this.showStatus('Login successful!', 'success');
+
+        // Proceed to main app
+        setTimeout(() => {
+          this.isConnected = true;
+          document.getElementById('setup-screen').classList.remove('active');
+          document.getElementById('main-screen').classList.add('active');
+          this.startApp();
+        }, 500);
+      } else {
+        errorDiv.textContent = data.detail || 'Login failed';
+        errorDiv.classList.remove('hidden');
+        this.showStatus('Login failed', 'error');
+      }
+    } catch (e) {
+      console.error('Login error:', e);
+      errorDiv.textContent = 'Network error. Please try again.';
+      errorDiv.classList.remove('hidden');
+      this.showStatus('Login failed', 'error');
+    }
+  }
+
+  async handleRegister() {
+    const username = document.getElementById('reg-username').value.trim();
+    const password = document.getElementById('reg-password').value;
+    const password2 = document.getElementById('reg-password2').value;
+    const errorDiv = document.getElementById('register-error');
+    const successDiv = document.getElementById('register-success');
+
+    errorDiv.classList.add('hidden');
+    successDiv.classList.add('hidden');
+
+    if (!username || !password) {
+      errorDiv.textContent = 'Please fill in all fields';
+      errorDiv.classList.remove('hidden');
+      return;
+    }
+
+    if (password !== password2) {
+      errorDiv.textContent = 'Passwords do not match';
+      errorDiv.classList.remove('hidden');
+      return;
+    }
+
+    try {
+      this.showStatus('Registering...', '');
+
+      const response = await fetch(`${this.serverUrl}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        successDiv.textContent = data.message || 'Registration successful! You can now log in.';
+        successDiv.classList.remove('hidden');
+        this.showStatus('Registration successful!', 'success');
+        // Switch to login after a moment
+        setTimeout(() => this.showLoginScreen(), 2000);
+      } else {
+        errorDiv.textContent = data.detail || 'Registration failed';
+        errorDiv.classList.remove('hidden');
+        this.showStatus('Registration failed', 'error');
+      }
+    } catch (e) {
+      console.error('Registration error:', e);
+      errorDiv.textContent = 'Network error. Please try again.';
+      errorDiv.classList.remove('hidden');
+      this.showStatus('Registration failed', 'error');
+    }
+  }
+
+  logout() {
+    // Clear auth tokens
+    this.clearTokens();
+
+    // Stop intervals
+    if (this.tokenRefreshInterval) {
+      clearInterval(this.tokenRefreshInterval);
+      this.tokenRefreshInterval = null;
+    }
+
+    // Disconnect
+    this.disconnect();
   }
 
   loadSettings() {
@@ -292,6 +580,43 @@ class CamaiApp {
       }
     });
 
+    // Auth form navigation
+    document.getElementById('back-to-server').addEventListener('click', () => this.showServerForm());
+    document.getElementById('back-to-login').addEventListener('click', () => this.showLoginScreen());
+    document.getElementById('show-register').addEventListener('click', (e) => {
+      e.preventDefault();
+      this.showRegisterScreen();
+    });
+    document.getElementById('show-login').addEventListener('click', (e) => {
+      e.preventDefault();
+      this.showLoginScreen();
+    });
+
+    // Login/Register buttons
+    document.getElementById('login-btn').addEventListener('click', () => this.handleLogin());
+    document.getElementById('register-btn').addEventListener('click', () => this.handleRegister());
+    document.getElementById('logout-btn').addEventListener('click', () => {
+      this.closeSettings();
+      this.logout();
+    });
+
+    // Enter key on login/register forms
+    document.getElementById('login-username').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') document.getElementById('login-password').focus();
+    });
+    document.getElementById('login-password').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') this.handleLogin();
+    });
+    document.getElementById('reg-username').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') document.getElementById('reg-password').focus();
+    });
+    document.getElementById('reg-password').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') document.getElementById('reg-password2').focus();
+    });
+    document.getElementById('reg-password2').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') this.handleRegister();
+    });
+
     // Event modal
     document.getElementById('close-event-modal').addEventListener('click', () => this.closeEventModal());
     document.getElementById('event-modal').addEventListener('click', (e) => {
@@ -352,11 +677,11 @@ class CamaiApp {
     const url = `http://${ip}:${port}`;
 
     try {
-      // Test connection with timeout
+      // Test connection with timeout (use public endpoint)
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const response = await fetch(`${url}/api/stats/summary`, {
+      const response = await fetch(`${url}/api/auth/status`, {
         method: 'GET',
         signal: controller.signal
       });
@@ -366,17 +691,29 @@ class CamaiApp {
       if (!response.ok) throw new Error('Server not responding');
 
       this.serverUrl = url;
-      this.isConnected = true;
       this.saveSettings();
 
-      this.showStatus('Connected!', 'success');
+      this.showStatus('Server found!', 'success');
 
-      // Switch to main screen
-      setTimeout(() => {
-        document.getElementById('setup-screen').classList.remove('active');
-        document.getElementById('main-screen').classList.add('active');
-        this.startApp();
-      }, 500);
+      // Check if we have a valid token
+      if (this.accessToken) {
+        const valid = await this.validateToken();
+        if (valid) {
+          // Token is valid, proceed to main app
+          this.showStatus('Authenticated!', 'success');
+          setTimeout(() => {
+            this.isConnected = true;
+            document.getElementById('setup-screen').classList.remove('active');
+            document.getElementById('main-screen').classList.add('active');
+            this.startApp();
+          }, 500);
+          return;
+        }
+      }
+
+      // No valid token - show login screen
+      this.showLoginScreen();
+      this.showStatus('Please login to continue', '');
 
     } catch (error) {
       console.error('Connection error:', error);
@@ -389,8 +726,11 @@ class CamaiApp {
   }
 
   startApp() {
-    // Start stream
-    this.updateStream();
+    // Start token refresh intervals
+    this.startTokenRefresh();
+
+    // Get stream token and start stream
+    this.getStreamToken().then(() => this.updateStream());
 
     // Setup WebSocket for real-time updates (stats, detections, alerts)
     this.connectWebSocket();
@@ -411,8 +751,34 @@ class CamaiApp {
     // Register FCM token for push notifications
     this.registerFCMToken();
 
-    // Update server display
+    // Update displays
     document.getElementById('setting-server').textContent = this.serverUrl;
+    this.updateUserDisplay();
+  }
+
+  updateUserDisplay() {
+    // Update user info in header and settings
+    if (this.user) {
+      const username = this.user.username || 'User';
+      const role = this.user.role || 'user';
+      const isAdmin = role === 'admin';
+
+      document.getElementById('header-user').textContent = username;
+      document.getElementById('setting-user').textContent = username;
+      document.getElementById('setting-role').textContent = isAdmin ? 'Admin' : 'User';
+
+      // Hide admin-only settings for regular users
+      this.updateAdminFeatures(isAdmin);
+    }
+  }
+
+  updateAdminFeatures(isAdmin) {
+    // Show/hide admin-only features based on role
+    // For example, hide certain detection settings for non-admins
+    const adminOnlySettings = document.querySelectorAll('.admin-only');
+    adminOnlySettings.forEach(el => {
+      el.style.display = isAdmin ? '' : 'none';
+    });
   }
 
   handleAppResume() {
@@ -458,7 +824,7 @@ class CamaiApp {
       const url = `${this.serverUrl}/api/notifications/register`;
       console.log('FCM DEBUG: Registering with server:', url);
 
-      const response = await fetch(url, {
+      const response = await this.authFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -488,15 +854,26 @@ class CamaiApp {
   updateStream() {
     const stream = document.getElementById('live-stream');
     const endpoint = this.showOverlays ? '/stream' : '/clean-stream';
-    // Add timestamp to force refresh and break cache
-    stream.src = `${this.serverUrl}${endpoint}?t=${Date.now()}`;
+
+    // Build URL with token and timestamp
+    let streamUrl = `${this.serverUrl}${endpoint}?t=${Date.now()}`;
+    if (this.streamToken) {
+      streamUrl += `&token=${this.streamToken}`;
+    }
+    stream.src = streamUrl;
 
     // Set up error handler to auto-retry on stream failure
     stream.onerror = () => {
       console.log('Stream error, retrying in 2 seconds...');
-      setTimeout(() => {
+      setTimeout(async () => {
         if (this.isConnected) {
-          stream.src = `${this.serverUrl}${endpoint}?t=${Date.now()}`;
+          // Refresh stream token before retrying
+          await this.getStreamToken();
+          let retryUrl = `${this.serverUrl}${endpoint}?t=${Date.now()}`;
+          if (this.streamToken) {
+            retryUrl += `&token=${this.streamToken}`;
+          }
+          stream.src = retryUrl;
         }
       }, 2000);
     };
@@ -507,7 +884,13 @@ class CamaiApp {
       this.ws.close();
     }
 
-    const wsUrl = this.serverUrl.replace('http', 'ws') + '/ws';
+    // Build WebSocket URL with token for authentication
+    let wsUrl = this.serverUrl.replace('http', 'ws') + '/ws';
+    if (this.streamToken) {
+      wsUrl += `?token=${this.streamToken}`;
+    } else if (this.accessToken) {
+      wsUrl += `?token=${this.accessToken}`;
+    }
 
     try {
       this.ws = new WebSocket(wsUrl);
@@ -618,7 +1001,7 @@ class CamaiApp {
 
     try {
       // Use full stats endpoint for detailed breakdown
-      const response = await fetch(`${this.serverUrl}/api/stats`);
+      const response = await this.authFetch(`${this.serverUrl}/api/stats`);
       const data = await response.json();
 
       // Update stats tab from summary
@@ -729,7 +1112,7 @@ class CamaiApp {
     if (!this.isConnected) return;
 
     try {
-      const response = await fetch(`${this.serverUrl}/api/stats/detections`);
+      const response = await this.authFetch(`${this.serverUrl}/api/stats/detections`);
       const data = await response.json();
 
       const container = document.getElementById('detections-list');
@@ -769,7 +1152,7 @@ class CamaiApp {
       let url = `${this.serverUrl}/api/events?limit=50`;
       if (filter) url += `&event_type=${filter}`;
 
-      const response = await fetch(url);
+      const response = await this.authFetch(url);
       const events = await response.json();  // API returns array directly
 
       // Store events for detail view
@@ -816,7 +1199,7 @@ class CamaiApp {
 
     try {
       // Use single endpoint for all system stats
-      const response = await fetch(`${this.serverUrl}/api/system`);
+      const response = await this.authFetch(`${this.serverUrl}/api/system`);
       const data = await response.json();
 
       // CPU
@@ -867,7 +1250,7 @@ class CamaiApp {
     if (!this.isConnected) return;
 
     try {
-      const response = await fetch(`${this.serverUrl}/api/ptz/status`);
+      const response = await this.authFetch(`${this.serverUrl}/api/ptz/status`);
       const data = await response.json();
 
       if (data.connected) {
@@ -889,7 +1272,7 @@ class CamaiApp {
 
   async loadPTZPresets() {
     try {
-      const response = await fetch(`${this.serverUrl}/api/ptz/presets`);
+      const response = await this.authFetch(`${this.serverUrl}/api/ptz/presets`);
       const presets = await response.json();
 
       const container = document.getElementById('ptz-presets');
@@ -917,7 +1300,7 @@ class CamaiApp {
     if (!this.isConnected) return;
 
     try {
-      await fetch(`${this.serverUrl}/api/ptz/presets/${token}/goto`, { method: 'POST' });
+      await this.authFetch(`${this.serverUrl}/api/ptz/presets/${token}/goto`, { method: 'POST' });
     } catch (error) {
       console.error('Failed to go to preset:', error);
     }
@@ -927,7 +1310,7 @@ class CamaiApp {
     if (!this.isConnected) return;
 
     try {
-      await fetch(`${this.serverUrl}/api/ptz/auto-track`, {
+      await this.authFetch(`${this.serverUrl}/api/ptz/auto-track`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled })
@@ -942,7 +1325,7 @@ class CamaiApp {
 
     try {
       if (direction === 'home') {
-        await fetch(`${this.serverUrl}/api/ptz/home`, { method: 'POST' });
+        await this.authFetch(`${this.serverUrl}/api/ptz/home`, { method: 'POST' });
       } else {
         const movements = {
           up: { pan: 0, tilt: 0.5 },
@@ -951,7 +1334,7 @@ class CamaiApp {
           right: { pan: 0.5, tilt: 0 }
         };
 
-        await fetch(`${this.serverUrl}/api/ptz/move`, {
+        await this.authFetch(`${this.serverUrl}/api/ptz/move`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(movements[direction])
@@ -959,7 +1342,7 @@ class CamaiApp {
 
         // Stop after 500ms
         setTimeout(async () => {
-          await fetch(`${this.serverUrl}/api/ptz/stop`, { method: 'POST' });
+          await this.authFetch(`${this.serverUrl}/api/ptz/stop`, { method: 'POST' });
         }, 500);
       }
     } catch (error) {
@@ -971,7 +1354,7 @@ class CamaiApp {
     if (!this.isConnected) return;
 
     try {
-      await fetch(`${this.serverUrl}/api/settings/detection`, {
+      await this.authFetch(`${this.serverUrl}/api/settings/detection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
@@ -985,7 +1368,7 @@ class CamaiApp {
     if (!this.isConnected) return;
 
     try {
-      await fetch(`${this.serverUrl}/api/settings/display`, {
+      await this.authFetch(`${this.serverUrl}/api/settings/display`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
@@ -999,7 +1382,7 @@ class CamaiApp {
     if (!this.isConnected) return;
 
     try {
-      await fetch(`${this.serverUrl}/api/settings/pose`, {
+      await this.authFetch(`${this.serverUrl}/api/settings/pose`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
@@ -1013,7 +1396,7 @@ class CamaiApp {
     if (!this.isConnected) return;
 
     try {
-      const response = await fetch(`${this.serverUrl}/api/settings`);
+      const response = await this.authFetch(`${this.serverUrl}/api/settings`);
       const settings = await response.json();
 
       // Apply detection settings
@@ -1099,9 +1482,10 @@ class CamaiApp {
     document.getElementById('event-snapshot-loading').style.display = 'block';
     document.getElementById('event-snapshot-error').classList.add('hidden');
 
-    // Set snapshot image
+    // Set snapshot image (include stream token for auth)
     if (event.snapshot_path) {
-      snapshot.src = `${this.serverUrl}${event.snapshot_path}`;
+      const token = this.streamToken || '';
+      snapshot.src = `${this.serverUrl}${event.snapshot_path}?token=${token}`;
     } else {
       snapshot.src = '';
       document.getElementById('event-snapshot-loading').style.display = 'none';
@@ -1156,7 +1540,7 @@ class CamaiApp {
       let url = `${this.serverUrl}/api/recordings?limit=50`;
       if (date) url += `&date=${date}`;
 
-      const response = await fetch(url);
+      const response = await this.authFetch(url);
       const data = await response.json();
 
       this.recordingsCache = data.recordings || [];
@@ -1168,11 +1552,14 @@ class CamaiApp {
         return;
       }
 
+      // Get stream token for thumbnails
+      const thumbToken = this.streamToken || '';
+
       container.innerHTML = this.recordingsCache.map(rec => `
         <div class="recording-item" data-id="${rec.id}">
           <div class="recording-thumbnail">
             ${rec.thumbnail_path
-              ? `<img src="${this.serverUrl}/api/recordings/${rec.id}/thumbnail" alt="Thumbnail">`
+              ? `<img src="${this.serverUrl}/api/recordings/${rec.id}/thumbnail?token=${thumbToken}" alt="Thumbnail">`
               : `<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>`
             }
           </div>
@@ -1204,7 +1591,7 @@ class CamaiApp {
     if (!this.isConnected) return;
 
     try {
-      const response = await fetch(`${this.serverUrl}/api/recordings/stats`);
+      const response = await this.authFetch(`${this.serverUrl}/api/recordings/stats`);
       const stats = await response.json();
 
       document.getElementById('recordings-count').textContent = `${stats.total_recordings || 0} recordings`;
@@ -1270,7 +1657,7 @@ class CamaiApp {
     if (!confirm('Are you sure you want to delete this recording?')) return;
 
     try {
-      const response = await fetch(`${this.serverUrl}/api/recordings/${this.currentRecording.id}`, {
+      const response = await this.authFetch(`${this.serverUrl}/api/recordings/${this.currentRecording.id}`, {
         method: 'DELETE'
       });
 

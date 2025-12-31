@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import FileResponse
 
 from database import get_database
-from auth.dependencies import get_current_user, CurrentUser
+from auth.dependencies import get_current_user, require_stream_token, CurrentUser
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["events"])
@@ -72,8 +72,8 @@ async def list_snapshots(user: CurrentUser = Depends(get_current_user)):
 
 
 @router.get("/api/snapshots/{filename}")
-async def get_snapshot(filename: str, user: CurrentUser = Depends(get_current_user)):
-    """Get a specific snapshot (authenticated)."""
+async def get_snapshot(filename: str, user: CurrentUser = Depends(require_stream_token)):
+    """Get a specific snapshot (requires stream token via ?token=xxx)."""
     cfg = _state["config"]
     if not cfg:
         raise HTTPException(status_code=503, detail="Config not loaded")
