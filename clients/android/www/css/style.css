@@ -203,6 +203,16 @@ html, body {
   animation: none;
 }
 
+.connection-dot.reconnecting {
+  background: var(--warning, #f59e0b);
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
 #header-status {
   font-size: 12px;
   color: var(--text-secondary);

@@ -400,31 +400,54 @@ class RecordingManager:
         # Remove placeholders and return actual recordings
         return [r for r in recordings if r is not None][:limit]
 
-    def get_recording_path(self, relative_path: str) -> Optional[Path]:
+    def get_recording_path(self, stored_path: str) -> Optional[Path]:
         """Get full path to a recording file.
 
-        Handles both:
+        Handles various path formats:
         - Relative paths: "2024-12-31/person_20241231_092448.mp4"
         - Legacy full paths: "recordings/2024-12-31/person_20241231_092448.mp4"
+        - Absolute paths: "D:/path/to/recordings/2024-12-31/person_xxx.mp4"
         """
-        # Try as relative path first
-        full_path = self.output_dir / relative_path
+        if not stored_path:
+            return None
+
+        path_obj = Path(stored_path)
+
+        # 1. Try as absolute path first (handles Windows full paths)
+        if path_obj.is_absolute() and path_obj.exists() and path_obj.is_file():
+            return path_obj
+
+        # 2. Try as relative to output_dir
+        full_path = self.output_dir / stored_path
         if full_path.exists() and full_path.is_file():
             return full_path
 
-        # Try as absolute path (legacy format)
-        abs_path = Path(relative_path)
-        if abs_path.exists() and abs_path.is_file():
-            return abs_path
-
-        # Try stripping output_dir prefix if it was stored with it
-        path_obj = Path(relative_path)
+        # 3. Try stripping output_dir name prefix if stored with it
+        # e.g., "recordings/2024-12-31/file.mp4" -> "2024-12-31/file.mp4"
         if path_obj.parts and path_obj.parts[0] == self.output_dir.name:
-            # Path starts with "recordings/", strip it
             stripped_path = Path(*path_obj.parts[1:])
             full_path = self.output_dir / stripped_path
             if full_path.exists() and full_path.is_file():
                 return full_path
+
+        # 4. Try just the filename in date directories
+        filename = path_obj.name
+        for date_dir in self.output_dir.iterdir():
+            if date_dir.is_dir():
+                candidate = date_dir / filename
+                if candidate.exists() and candidate.is_file():
+                    return candidate
+
+        # 5. Try extracting date from filename pattern person_YYYYMMDD_HHMMSS.mp4
+        if filename.startswith("person_") and len(filename) > 20:
+            try:
+                date_part = filename[7:15]  # Extract YYYYMMDD
+                date_str = f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]}"
+                candidate = self.output_dir / date_str / filename
+                if candidate.exists() and candidate.is_file():
+                    return candidate
+            except (IndexError, ValueError):
+                pass
 
         return None
 

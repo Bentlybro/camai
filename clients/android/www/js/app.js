@@ -92,6 +92,9 @@ class CamaiApp {
     this.statsInterval = null;
     this.systemInterval = null;
     this.pingInterval = null;
+    this.reconnectTimeout = null;
+    this.reconnectAttempts = 0;
+    this.maxReconnectDelay = 30000; // Max 30 seconds between attempts
     this.currentTab = 'live';
     this.showOverlays = true;
     this.eventsCache = [];
@@ -374,16 +377,34 @@ class CamaiApp {
 
       this.ws.onopen = () => {
         console.log('WebSocket connected');
+        this.reconnectAttempts = 0; // Reset on successful connection
         this.updateConnectionStatus(true);
       };
 
-      this.ws.onclose = () => {
-        console.log('WebSocket disconnected');
+      this.ws.onclose = (event) => {
+        console.log('WebSocket disconnected, code:', event.code, 'reason:', event.reason);
         this.updateConnectionStatus(false);
-        // Reconnect after 3 seconds
-        setTimeout(() => {
-          if (this.isConnected) this.connectWebSocket();
-        }, 3000);
+
+        // Clear any existing reconnect timeout
+        if (this.reconnectTimeout) {
+          clearTimeout(this.reconnectTimeout);
+          this.reconnectTimeout = null;
+        }
+
+        // Auto-reconnect with exponential backoff if we're supposed to be connected
+        if (this.isConnected) {
+          this.reconnectAttempts++;
+          // Exponential backoff: 3s, 6s, 12s, 24s, max 30s
+          const delay = Math.min(3000 * Math.pow(2, this.reconnectAttempts - 1), this.maxReconnectDelay);
+          console.log(`Auto-reconnecting in ${delay/1000}s (attempt ${this.reconnectAttempts})...`);
+
+          this.reconnectTimeout = setTimeout(() => {
+            if (this.isConnected) {
+              console.log('Attempting WebSocket reconnection...');
+              this.connectWebSocket();
+            }
+          }, delay);
+        }
       };
 
       this.ws.onerror = (error) => {
@@ -433,10 +454,20 @@ class CamaiApp {
 
     if (connected) {
       dot.classList.remove('disconnected');
+      dot.classList.remove('reconnecting');
       status.textContent = 'Connected';
-    } else {
+    } else if (this.isConnected) {
+      // We want to be connected but aren't - show reconnecting
       dot.classList.add('disconnected');
-      status.textContent = 'Reconnecting...';
+      dot.classList.add('reconnecting');
+      status.textContent = this.reconnectAttempts > 0
+        ? `Reconnecting (${this.reconnectAttempts})...`
+        : 'Reconnecting...';
+    } else {
+      // Intentionally disconnected
+      dot.classList.add('disconnected');
+      dot.classList.remove('reconnecting');
+      status.textContent = 'Disconnected';
     }
   }
 

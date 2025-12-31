@@ -63,6 +63,61 @@ async def get_recordings(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/debug/{recording_id}")
+async def debug_recording(recording_id: int):
+    """Debug endpoint to see recording path info."""
+    from pathlib import Path
+
+    db = get_database()
+    recording = db.get_recording(recording_id)
+
+    if not recording:
+        return {"error": "Recording not found in database"}
+
+    recorder = _state.get("recorder")
+    output_dir = str(recorder.output_dir) if recorder else "N/A"
+
+    stored_path = recording.get("path", "")
+
+    # Try various path resolutions
+    results = {
+        "recording_id": recording_id,
+        "stored_path": stored_path,
+        "output_dir": output_dir,
+        "checks": []
+    }
+
+    # Check 1: Direct path
+    p1 = Path(stored_path)
+    results["checks"].append({
+        "method": "direct",
+        "path": str(p1),
+        "exists": p1.exists()
+    })
+
+    # Check 2: output_dir / stored_path
+    if recorder:
+        p2 = recorder.output_dir / stored_path
+        results["checks"].append({
+            "method": "output_dir/stored",
+            "path": str(p2),
+            "exists": p2.exists()
+        })
+
+        # Check 3: Strip first component if it matches output_dir name
+        path_obj = Path(stored_path)
+        if path_obj.parts and path_obj.parts[0] == recorder.output_dir.name:
+            stripped = Path(*path_obj.parts[1:])
+            p3 = recorder.output_dir / stripped
+            results["checks"].append({
+                "method": "stripped",
+                "path": str(p3),
+                "exists": p3.exists()
+            })
+
+    return results
+
+
 @router.get("/dates")
 async def get_recording_dates():
     """Get list of dates that have recordings."""
@@ -156,11 +211,21 @@ async def stream_recording(recording_id: int):
             raise HTTPException(status_code=500, detail="Recording system not available")
 
         stored_path = recording["path"]
+        logger.info(f"Stream request for recording {recording_id}: stored_path='{stored_path}'")
+
         video_path = recorder.get_recording_path(stored_path)
+        logger.info(f"Resolved video_path: {video_path}, exists: {video_path.exists() if video_path else 'None'}")
 
         if not video_path or not video_path.exists():
-            logger.error(f"Video file not found for recording {recording_id}: stored_path='{stored_path}', resolved='{video_path}'")
-            raise HTTPException(status_code=404, detail=f"Video file not found: {stored_path}")
+            # Try direct path as fallback
+            from pathlib import Path
+            direct_path = Path(stored_path)
+            if direct_path.exists():
+                video_path = direct_path
+                logger.info(f"Using direct path: {video_path}")
+            else:
+                logger.error(f"Video file not found for recording {recording_id}: stored_path='{stored_path}', resolved='{video_path}'")
+                raise HTTPException(status_code=404, detail=f"Video file not found: {stored_path}")
 
         return FileResponse(
             video_path,
