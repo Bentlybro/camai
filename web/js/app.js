@@ -163,15 +163,24 @@ class CAMAIDashboard {
 
     async refreshStreamToken() {
         try {
+            console.log('Requesting stream token...');
             const response = await this.authFetch('/api/auth/stream-token');
             if (response.ok) {
                 const data = await response.json();
-                this.streamToken = data.token;
+                console.log('Stream token response:', data);
+                this.streamToken = data.stream_token;  // API returns stream_token not token
                 this.streamTokenExpiry = Date.now() + (data.expires_in * 1000);
+                console.log('Stream token set:', this.streamToken ? 'yes' : 'no');
                 this.updateStreamWithToken();
+                return true;
+            } else {
+                const errorText = await response.text();
+                console.error('Failed to get stream token:', response.status, errorText);
+                return false;
             }
         } catch (e) {
             console.error('Failed to refresh stream token:', e);
+            return false;
         }
     }
 
@@ -182,7 +191,10 @@ class CAMAIDashboard {
         }
 
         // Otherwise get a new one
-        await this.refreshStreamToken();
+        const success = await this.refreshStreamToken();
+        if (!success) {
+            console.error('Could not obtain stream token');
+        }
         return this.streamToken;
     }
 
@@ -670,7 +682,15 @@ class CAMAIDashboard {
 
         // Get stream token for WebSocket auth
         const token = await this.getStreamToken();
+
+        if (!token) {
+            console.error('No stream token available for WebSocket, retrying in 2s...');
+            setTimeout(() => this.setupWebSocket(), 2000);
+            return;
+        }
+
         const wsUrl = `${protocol}//${window.location.host}/ws?token=${token}`;
+        console.log('Connecting WebSocket with token:', token ? 'present' : 'missing');
 
         try {
             this.ws = new WebSocket(wsUrl);

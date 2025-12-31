@@ -298,9 +298,11 @@ class CamaiApp {
       const response = await this.authFetch(`${this.serverUrl}/api/auth/stream-token`);
       if (response.ok) {
         const data = await response.json();
-        this.streamToken = data.token;
+        this.streamToken = data.stream_token;  // API returns stream_token not token
         this.streamTokenExpiry = Date.now() + (data.expires_in * 1000);
         this.updateStream();
+      } else {
+        console.error('Failed to get stream token:', response.status);
       }
     } catch (e) {
       console.error('Failed to refresh stream token:', e);
