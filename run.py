@@ -24,8 +24,9 @@ sys.path.insert(0, str(src_path))
 from config import get_config
 from capture import RTSPCapture
 from detector import YOLODetector, Detection
-from events import EventDetector
+from events import EventDetector, Event, EventType
 from notifications import NotificationManager
+from notifications_pkg.handlers import annotate_snapshot, extract_head_crop, create_combined_snapshot
 from stream import StreamServer, annotate_frame
 from ptz import PTZController, PTZConfig
 from pose import PoseEstimator
@@ -121,6 +122,9 @@ def main():
         image_url = None
         if alert_data.get("screenshot"):
             try:
+                import cv2
+                import numpy as np
+
                 # Save screenshot to snapshots directory
                 snapshot_dir = Path(cfg.snapshot_dir)
                 snapshot_dir.mkdir(parents=True, exist_ok=True)
@@ -129,9 +133,65 @@ def main():
                 filename = f"alert_{timestamp_str}.jpg"
                 filepath = snapshot_dir / filename
 
-                # Write JPEG bytes directly
-                with open(filepath, 'wb') as f:
-                    f.write(alert_data["screenshot"])
+                # Decode the raw JPEG to annotate it
+                jpeg_bytes = alert_data["screenshot"]
+                nparr = np.frombuffer(jpeg_bytes, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+                if frame is not None:
+                    # Get detection info to create bounding box
+                    detections = alert_data.get("detections", [])
+                    keypoints = api.get_state("latest_keypoints")
+
+                    # Find person detection with highest confidence
+                    best_detection = None
+                    best_conf = 0
+                    for d in detections:
+                        conf = d.get("confidence", 0)
+                        if conf > best_conf:
+                            best_conf = conf
+                            best_detection = d
+
+                    # Try to get bbox from current tracked detections
+                    bbox = None
+                    if best_detection:
+                        # Get bbox from the events tracker
+                        events_tracker = api.get_state("events")
+                        if events_tracker:
+                            for obj in events_tracker._objects.values():
+                                if obj.class_name == "person":
+                                    bbox = obj.bbox
+                                    break
+
+                    # Create annotated snapshot with bounding box and head crop
+                    if bbox:
+                        # Create a mock Event for annotation
+                        event = Event(
+                            event_type=EventType.PERSON_DETECTED,
+                            timestamp=time.time(),
+                            class_name="person",
+                            confidence=best_conf,
+                            bbox=bbox,
+                            description="Person detected"
+                        )
+
+                        # Extract head crop
+                        head_crop = extract_head_crop(frame, bbox, keypoints[0] if keypoints else None)
+
+                        # Create combined snapshot with annotation and head inset
+                        annotated_frame = create_combined_snapshot(frame, head_crop, event)
+                    else:
+                        # No bbox available, just use raw frame
+                        annotated_frame = frame
+
+                    # Encode annotated frame as JPEG
+                    _, buf = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    with open(filepath, 'wb') as f:
+                        f.write(buf.tobytes())
+                else:
+                    # Fallback: write raw JPEG if decode failed
+                    with open(filepath, 'wb') as f:
+                        f.write(jpeg_bytes)
 
                 # Get server IP for the image URL
                 try:

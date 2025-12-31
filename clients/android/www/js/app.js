@@ -2,8 +2,8 @@
 // Simple vanilla JS app that works in both browser and Capacitor WebView
 
 // App version for OTA updates
-const APP_VERSION = '1.0.1';
-const APP_VERSION_CODE = 10001;
+const APP_VERSION = '1.0.3';
+const APP_VERSION_CODE = 10003;
 
 // Import Capacitor plugins when available
 let LocalNotifications = null;
@@ -475,6 +475,9 @@ class CamaiApp {
   logout() {
     // Clear auth tokens
     this.clearTokens();
+
+    // Remove admin class
+    document.body.classList.remove('is-admin');
 
     // Stop intervals
     if (this.tokenRefreshInterval) {
@@ -1005,17 +1008,12 @@ class CamaiApp {
   }
 
   updateAdminFeatures(isAdmin) {
-    // Show/hide admin-only features based on role
-    const adminOnlySettings = document.querySelectorAll('.admin-only');
-    adminOnlySettings.forEach(el => {
-      if (isAdmin) {
-        el.classList.remove('hidden');
-        el.style.display = '';
-      } else {
-        el.classList.add('hidden');
-        el.style.display = 'none';
-      }
-    });
+    // Toggle admin class on body to show/hide admin-only elements via CSS
+    if (isAdmin) {
+      document.body.classList.add('is-admin');
+    } else {
+      document.body.classList.remove('is-admin');
+    }
 
     // Load users if admin
     if (isAdmin) {

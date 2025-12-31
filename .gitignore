@@ -33,3 +33,4 @@ build/
 Thumbs.db
 clients/android/android/app/google-services.json
 firebase-credentials.json
+clients/android/android/camai-release.keystore

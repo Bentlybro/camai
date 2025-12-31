@@ -1244,6 +1244,23 @@ html, body {
   display: none !important;
 }
 
+/* Admin-only elements - hidden by default, shown when body has admin class */
+.admin-only {
+  display: none !important;
+}
+
+body.is-admin .admin-only {
+  display: flex !important;
+}
+
+body.is-admin .admin-only.setting-group {
+  display: block !important;
+}
+
+body.is-admin .admin-only.tab-btn {
+  display: inline-flex !important;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 4px;

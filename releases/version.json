@@ -1,8 +1,8 @@
 {
-    "version": "1.0.1",
-    "version_code": 10001,
-    "release_notes": "Adds OTA Updates",
-    "apk_filename": "camai-1.0.1.apk",
-    "apk_size": 3627351,
+    "version": "1.0.3",
+    "version_code": 10003,
+    "release_notes": "Role-based UI visibility",
+    "apk_filename": "camai-1.0.3.apk",
+    "apk_size": 3681921,
     "required": false
 }
