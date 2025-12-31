@@ -776,11 +776,200 @@ class CamaiApp {
 
   updateAdminFeatures(isAdmin) {
     // Show/hide admin-only features based on role
-    // For example, hide certain detection settings for non-admins
     const adminOnlySettings = document.querySelectorAll('.admin-only');
     adminOnlySettings.forEach(el => {
-      el.style.display = isAdmin ? '' : 'none';
+      if (isAdmin) {
+        el.classList.remove('hidden');
+        el.style.display = '';
+      } else {
+        el.classList.add('hidden');
+        el.style.display = 'none';
+      }
     });
+
+    // Load users if admin
+    if (isAdmin) {
+      this.loadAllUsers();
+      this.loadPendingUsers();
+    }
+  }
+
+  // ==================== USER MANAGEMENT (ADMIN) ====================
+
+  async loadAllUsers() {
+    try {
+      const response = await this.authFetch(`${this.serverUrl}/api/admin/users`);
+      if (!response.ok) return;
+
+      const data = await response.json();
+      this.renderAllUsers(data.users || []);
+      const countEl = document.getElementById('users-count');
+      if (countEl) countEl.textContent = data.total || 0;
+    } catch (e) {
+      console.error('Failed to load users:', e);
+    }
+  }
+
+  async loadPendingUsers() {
+    try {
+      const response = await this.authFetch(`${this.serverUrl}/api/admin/users/pending`);
+      if (!response.ok) return;
+
+      const data = await response.json();
+      this.renderPendingUsers(data.users || []);
+      const countEl = document.getElementById('pending-count');
+      if (countEl) countEl.textContent = data.total || 0;
+    } catch (e) {
+      console.error('Failed to load pending users:', e);
+    }
+  }
+
+  renderAllUsers(users) {
+    const container = document.getElementById('all-users');
+    if (!container) return;
+
+    if (users.length === 0) {
+      container.innerHTML = '<p class="empty-state">No users found</p>';
+      return;
+    }
+
+    const currentUserId = this.user?.id;
+
+    container.innerHTML = users.map(user => {
+      const isCurrentUser = user.id === currentUserId;
+      const isAdmin = user.role === 'admin';
+
+      return `
+        <div class="user-card ${isCurrentUser ? 'current-user' : ''}">
+          <div class="user-info">
+            <span class="user-name">${user.username}</span>
+            <span class="badge ${isAdmin ? 'badge-admin' : 'badge-user'} user-role">${user.role}</span>
+            <div class="user-meta">
+              ${user.last_login ? `Last: ${new Date(user.last_login).toLocaleDateString()}` : 'Never logged in'}
+              ${isCurrentUser ? ' (you)' : ''}
+            </div>
+          </div>
+          <div class="user-actions">
+            ${!isCurrentUser ? `
+              <button class="btn-role" onclick="app.toggleUserRole(${user.id}, '${user.role}')">
+                ${isAdmin ? 'Demote' : 'Promote'}
+              </button>
+              <button class="btn-delete" onclick="app.deleteUser(${user.id}, '${user.username}')">Delete</button>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  renderPendingUsers(users) {
+    const container = document.getElementById('pending-users');
+    if (!container) return;
+
+    if (users.length === 0) {
+      container.innerHTML = '<p class="empty-state">No pending requests</p>';
+      return;
+    }
+
+    container.innerHTML = users.map(user => `
+      <div class="user-card pending">
+        <div class="user-info">
+          <span class="user-name">${user.username}</span>
+          <span class="badge badge-pending user-role">Pending</span>
+          <div class="user-meta">
+            Registered: ${user.created_at ? new Date(user.created_at).toLocaleDateString() : 'Unknown'}
+          </div>
+        </div>
+        <div class="user-actions">
+          <button class="btn-approve" onclick="app.approveUser(${user.id})">Approve</button>
+          <button class="btn-reject" onclick="app.rejectUser(${user.id}, '${user.username}')">Reject</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  async approveUser(userId) {
+    try {
+      const response = await this.authFetch(`${this.serverUrl}/api/admin/users/${userId}/approve`, {
+        method: 'POST'
+      });
+
+      if (response.ok) {
+        this.loadPendingUsers();
+        this.loadAllUsers();
+      } else {
+        const data = await response.json();
+        alert(data.detail || 'Failed to approve user');
+      }
+    } catch (e) {
+      console.error('Failed to approve user:', e);
+      alert('Failed to approve user');
+    }
+  }
+
+  async rejectUser(userId, username) {
+    if (!confirm(`Reject and delete "${username}"?`)) return;
+
+    try {
+      const response = await this.authFetch(`${this.serverUrl}/api/admin/users/${userId}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        this.loadPendingUsers();
+      } else {
+        const data = await response.json();
+        alert(data.detail || 'Failed to reject user');
+      }
+    } catch (e) {
+      console.error('Failed to reject user:', e);
+      alert('Failed to reject user');
+    }
+  }
+
+  async toggleUserRole(userId, currentRole) {
+    const newRole = currentRole === 'admin' ? 'user' : 'admin';
+    const action = currentRole === 'admin' ? 'demote' : 'promote';
+
+    if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} this user to ${newRole}?`)) return;
+
+    try {
+      const response = await this.authFetch(`${this.serverUrl}/api/admin/users/${userId}/role`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole })
+      });
+
+      if (response.ok) {
+        this.loadAllUsers();
+      } else {
+        const data = await response.json();
+        alert(data.detail || 'Failed to change role');
+      }
+    } catch (e) {
+      console.error('Failed to change role:', e);
+      alert('Failed to change role');
+    }
+  }
+
+  async deleteUser(userId, username) {
+    if (!confirm(`Delete "${username}"? This cannot be undone.`)) return;
+
+    try {
+      const response = await this.authFetch(`${this.serverUrl}/api/admin/users/${userId}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        this.loadAllUsers();
+      } else {
+        const data = await response.json();
+        alert(data.detail || 'Failed to delete user');
+      }
+    } catch (e) {
+      console.error('Failed to delete user:', e);
+      alert('Failed to delete user');
+    }
   }
 
   handleAppResume() {

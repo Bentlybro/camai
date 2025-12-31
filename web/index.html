@@ -19,6 +19,7 @@
             <a href="#" class="nav-link" data-page="events">Events</a>
             <a href="#" class="nav-link" data-page="system">System</a>
             <a href="#" class="nav-link" data-page="settings">Settings</a>
+            <a href="#" class="nav-link admin-only" data-page="users">Users</a>
         </div>
         <div class="nav-status">
             <span class="status-dot online"></span>
@@ -736,6 +737,35 @@
                         <p>YOLO11 + TensorRT on Jetson Orin Nano</p>
                         <p class="version">Version 1.0.0</p>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Users Admin Page (Admin Only) -->
+        <div id="page-users" class="page admin-only">
+            <div class="page-header">
+                <h2>User Management</h2>
+            </div>
+
+            <!-- Pending Approvals -->
+            <div class="card users-section">
+                <div class="card-header">
+                    <h3>Pending Approvals</h3>
+                    <span class="badge" id="pending-count">0</span>
+                </div>
+                <div class="users-list" id="pending-users">
+                    <div class="users-empty">No pending requests</div>
+                </div>
+            </div>
+
+            <!-- All Users -->
+            <div class="card users-section">
+                <div class="card-header">
+                    <h3>All Users</h3>
+                    <span class="badge badge-secondary" id="users-count">0</span>
+                </div>
+                <div class="users-list" id="all-users">
+                    <div class="users-empty">Loading...</div>
                 </div>
             </div>
         </div>

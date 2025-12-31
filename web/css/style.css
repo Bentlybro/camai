@@ -1978,3 +1978,130 @@ button:disabled {
         display: none;
     }
 }
+
+/* ==================== USERS ADMIN PAGE ==================== */
+
+.users-section {
+    margin-bottom: 1.5rem;
+}
+
+.users-list {
+    padding: 0.5rem;
+}
+
+.users-empty {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.user-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
+    gap: 1rem;
+}
+
+.user-card:last-child {
+    margin-bottom: 0;
+}
+
+.user-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.user-name {
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--text-primary);
+}
+
+.user-meta {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.user-role {
+    margin-left: 0.5rem;
+}
+
+.badge-admin {
+    background: var(--accent);
+    color: var(--bg-primary);
+}
+
+.badge-user {
+    background: var(--text-secondary);
+    color: var(--bg-primary);
+}
+
+.badge-pending {
+    background: var(--warning);
+    color: var(--bg-primary);
+}
+
+.user-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.user-actions .btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+}
+
+.btn-approve {
+    background: var(--success);
+    color: var(--bg-primary);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.btn-approve:hover {
+    filter: brightness(1.1);
+}
+
+.btn-reject, .btn-delete {
+    background: var(--danger);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.btn-reject:hover, .btn-delete:hover {
+    filter: brightness(1.1);
+}
+
+.btn-role {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.btn-role:hover {
+    background: var(--accent);
+    color: var(--bg-primary);
+    border-color: var(--accent);
+}
+
+.user-card.current-user {
+    border: 1px solid var(--accent);
+}
+
+.user-card.pending {
+    border-left: 3px solid var(--warning);
+}

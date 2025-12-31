@@ -438,6 +438,185 @@ class CAMAIDashboard {
                     }
                 });
             }
+        } else {
+            // Load users for admin panel
+            this.loadAllUsers();
+            this.loadPendingUsers();
+        }
+    }
+
+    // ==================== USER MANAGEMENT (ADMIN) ====================
+
+    async loadAllUsers() {
+        try {
+            const response = await this.authFetch('/api/admin/users');
+            if (!response.ok) return;
+
+            const data = await response.json();
+            this.renderAllUsers(data.users || []);
+            document.getElementById('users-count').textContent = data.total || 0;
+        } catch (e) {
+            console.error('Failed to load users:', e);
+        }
+    }
+
+    async loadPendingUsers() {
+        try {
+            const response = await this.authFetch('/api/admin/users/pending');
+            if (!response.ok) return;
+
+            const data = await response.json();
+            this.renderPendingUsers(data.users || []);
+            document.getElementById('pending-count').textContent = data.total || 0;
+        } catch (e) {
+            console.error('Failed to load pending users:', e);
+        }
+    }
+
+    renderAllUsers(users) {
+        const container = document.getElementById('all-users');
+        if (!container) return;
+
+        if (users.length === 0) {
+            container.innerHTML = '<div class="users-empty">No users found</div>';
+            return;
+        }
+
+        container.innerHTML = users.map(user => {
+            const isCurrentUser = user.id === this.user?.id;
+            const isAdmin = user.role === 'admin';
+
+            return `
+                <div class="user-card ${isCurrentUser ? 'current-user' : ''}">
+                    <div class="user-info">
+                        <span class="user-name">${user.username}</span>
+                        <span class="badge ${isAdmin ? 'badge-admin' : 'badge-user'} user-role">${user.role}</span>
+                        <div class="user-meta">
+                            ${user.last_login ? `Last login: ${new Date(user.last_login).toLocaleString()}` : 'Never logged in'}
+                            ${isCurrentUser ? ' (you)' : ''}
+                        </div>
+                    </div>
+                    <div class="user-actions">
+                        ${!isCurrentUser ? `
+                            <button class="btn btn-role" onclick="dashboard.toggleUserRole(${user.id}, '${user.role}')">
+                                ${isAdmin ? 'Demote' : 'Promote'}
+                            </button>
+                            <button class="btn btn-delete" onclick="dashboard.deleteUser(${user.id}, '${user.username}')">Delete</button>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    renderPendingUsers(users) {
+        const container = document.getElementById('pending-users');
+        if (!container) return;
+
+        if (users.length === 0) {
+            container.innerHTML = '<div class="users-empty">No pending requests</div>';
+            return;
+        }
+
+        container.innerHTML = users.map(user => `
+            <div class="user-card pending">
+                <div class="user-info">
+                    <span class="user-name">${user.username}</span>
+                    <span class="badge badge-pending">Pending</span>
+                    <div class="user-meta">
+                        Registered: ${user.created_at ? new Date(user.created_at).toLocaleString() : 'Unknown'}
+                    </div>
+                </div>
+                <div class="user-actions">
+                    <button class="btn btn-approve" onclick="dashboard.approveUser(${user.id})">Approve</button>
+                    <button class="btn btn-reject" onclick="dashboard.rejectUser(${user.id}, '${user.username}')">Reject</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async approveUser(userId) {
+        try {
+            const response = await this.authFetch(`/api/admin/users/${userId}/approve`, {
+                method: 'POST'
+            });
+
+            if (response.ok) {
+                // Reload both lists
+                this.loadPendingUsers();
+                this.loadAllUsers();
+            } else {
+                const data = await response.json();
+                alert(data.detail || 'Failed to approve user');
+            }
+        } catch (e) {
+            console.error('Failed to approve user:', e);
+            alert('Failed to approve user');
+        }
+    }
+
+    async rejectUser(userId, username) {
+        if (!confirm(`Are you sure you want to reject and delete "${username}"?`)) return;
+
+        try {
+            const response = await this.authFetch(`/api/admin/users/${userId}`, {
+                method: 'DELETE'
+            });
+
+            if (response.ok) {
+                this.loadPendingUsers();
+            } else {
+                const data = await response.json();
+                alert(data.detail || 'Failed to reject user');
+            }
+        } catch (e) {
+            console.error('Failed to reject user:', e);
+            alert('Failed to reject user');
+        }
+    }
+
+    async toggleUserRole(userId, currentRole) {
+        const newRole = currentRole === 'admin' ? 'user' : 'admin';
+        const action = currentRole === 'admin' ? 'demote' : 'promote';
+
+        if (!confirm(`Are you sure you want to ${action} this user to ${newRole}?`)) return;
+
+        try {
+            const response = await this.authFetch(`/api/admin/users/${userId}/role`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: newRole })
+            });
+
+            if (response.ok) {
+                this.loadAllUsers();
+            } else {
+                const data = await response.json();
+                alert(data.detail || 'Failed to change role');
+            }
+        } catch (e) {
+            console.error('Failed to change role:', e);
+            alert('Failed to change role');
+        }
+    }
+
+    async deleteUser(userId, username) {
+        if (!confirm(`Are you sure you want to delete "${username}"? This cannot be undone.`)) return;
+
+        try {
+            const response = await this.authFetch(`/api/admin/users/${userId}`, {
+                method: 'DELETE'
+            });
+
+            if (response.ok) {
+                this.loadAllUsers();
+            } else {
+                const data = await response.json();
+                alert(data.detail || 'Failed to delete user');
+            }
+        } catch (e) {
+            console.error('Failed to delete user:', e);
+            alert('Failed to delete user');
         }
     }
 
