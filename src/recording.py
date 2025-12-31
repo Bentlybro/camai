@@ -297,11 +297,12 @@ class RecordingManager:
         width, height = self.resolution
 
         # Try hardware encoding first (Jetson), then software
+        # Note: h264_nvmpi (Jetson) doesn't support -preset, uses -b:v for bitrate
         encoders_to_try = [
-            # Jetson hardware encoder
-            ['h264_nvmpi', ['-preset', 'medium']],
-            # Generic hardware
-            ['h264_nvenc', ['-preset', 'fast']],
+            # Jetson hardware encoder (no preset, use bitrate)
+            ['h264_nvmpi', ['-b:v', '4M', '-maxrate', '6M', '-bufsize', '8M']],
+            # Generic NVIDIA hardware
+            ['h264_nvenc', ['-preset', 'fast', '-b:v', '4M']],
             # Software encoder (always works)
             ['libx264', ['-preset', 'ultrafast', '-tune', 'zerolatency', '-crf', '23']],
         ]
@@ -332,11 +333,28 @@ class RecordingManager:
                 )
 
                 # Give it a moment to start
-                time.sleep(0.1)
+                time.sleep(0.2)
 
                 if self._ffmpeg_proc.poll() is None:
-                    logger.info(f"Recording using FFmpeg encoder: {encoder}")
-                    return
+                    # Test write a black frame to verify encoder works
+                    test_frame = np.zeros((height, width, 3), dtype=np.uint8)
+                    try:
+                        self._ffmpeg_proc.stdin.write(test_frame.tobytes())
+                        self._ffmpeg_proc.stdin.flush()
+                        time.sleep(0.1)
+                        if self._ffmpeg_proc.poll() is None:
+                            logger.info(f"Recording using FFmpeg encoder: {encoder}")
+                            return
+                        else:
+                            raise Exception("FFmpeg died after test frame")
+                    except Exception as e:
+                        logger.debug(f"Encoder {encoder} failed test write: {e}")
+                        try:
+                            self._ffmpeg_proc.kill()
+                        except:
+                            pass
+                        self._ffmpeg_proc = None
+                        continue
                 else:
                     # Process exited, try next encoder
                     stderr = self._ffmpeg_proc.stderr.read().decode() if self._ffmpeg_proc.stderr else ""
@@ -345,6 +363,11 @@ class RecordingManager:
 
             except Exception as e:
                 logger.debug(f"Encoder {encoder} not available: {e}")
+                if self._ffmpeg_proc:
+                    try:
+                        self._ffmpeg_proc.kill()
+                    except:
+                        pass
                 self._ffmpeg_proc = None
                 continue
 

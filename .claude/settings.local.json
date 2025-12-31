@@ -4,7 +4,9 @@
       "Bash(mkdir:*)",
       "Bash(bun install:*)",
       "Bash(curl:*)",
-      "Bash(npm info:*)"
+      "Bash(npm info:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
