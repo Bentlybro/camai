@@ -28,11 +28,12 @@ from stream import StreamServer, annotate_frame
 from ptz import PTZController, PTZConfig
 from pose import PoseEstimator
 from classifier import ImageClassifier
+from recording import RecordingManager
 from database import init_database, get_database
 import api
 
 # Also import from new modular structure (api uses this internally)
-from api import app, set_state, update_stats, add_event
+from api import app, set_state, update_stats, add_event, broadcast_alert
 
 logging.basicConfig(
     level=logging.INFO,
@@ -76,6 +77,7 @@ def main():
     if notifier._file_logger:
         notifier._file_logger.cleanup_old_files()
     db.cleanup_old_events(days_to_keep=7)
+    db.cleanup_old_recordings(days_to_keep=30)
 
     if cfg.enable_discord and cfg.discord_webhook:
         notifier.add_discord(cfg.discord_webhook)
@@ -84,6 +86,26 @@ def main():
 
     # Stream server (for frame storage, used by API)
     stream = StreamServer(cfg.stream_port)
+
+    # Recording manager - records video when person detected
+    def on_recording_complete(info):
+        """Callback when a recording is saved."""
+        try:
+            db.add_recording(info)
+            log.info(f"Recording saved: {info['filename']} ({info['duration']:.1f}s)")
+        except Exception as e:
+            log.warning(f"Failed to save recording to database: {e}")
+
+    recorder = RecordingManager(
+        output_dir="recordings",
+        buffer_seconds=5.0,
+        post_record_seconds=5.0,
+        retention_days=30,
+        fps=15,
+        resolution=(cfg.capture_width, cfg.capture_height),
+        on_recording_complete=on_recording_complete,
+        on_person_alert=broadcast_alert,
+    )
 
     # Event callback
     def on_event(event):
@@ -205,6 +227,7 @@ def main():
     api.set_state("classifier", classifier)
     api.set_state("stream_server", stream)
     api.set_state("notifier", notifier)
+    api.set_state("recorder", recorder)
 
     # Start FastAPI in a thread
     api_thread = threading.Thread(target=run_fastapi, args=(cfg.stream_port,), daemon=True)
@@ -300,6 +323,9 @@ def main():
             if ptz and cfg.enable_ptz:
                 ptz.track_person(detections, frame_w, frame_h)
 
+            # === RECORDING (checks for person and records with pre-roll buffer) ===
+            recorder.add_frame(frame, people_detected, detections)
+
             # === STREAM UPDATE (async, non-blocking) ===
             # Update FPS periodically (not every frame)
             if frame_count % fps_update_interval == 0:
@@ -337,6 +363,7 @@ def main():
         capture.stop()
         stream.stop()
         notifier.stop()
+        recorder.stop()
         if ptz:
             ptz.disconnect()
 

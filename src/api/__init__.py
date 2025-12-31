@@ -1,4 +1,4 @@
 """API module - FastAPI web dashboard."""
-from .app import app, set_state, get_state, update_stats, add_event
+from .app import app, set_state, get_state, update_stats, add_event, broadcast_alert
 
-__all__ = ["app", "set_state", "get_state", "update_stats", "add_event"]
+__all__ = ["app", "set_state", "get_state", "update_stats", "add_event", "broadcast_alert"]

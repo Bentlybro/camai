@@ -941,6 +941,251 @@ html, body {
 .event-info-value.type-badge.vehicle, .event-info-value.type-badge.car { background: rgba(0, 255, 136, 0.2); color: var(--vehicle-color); }
 .event-info-value.type-badge.package { background: rgba(255, 170, 0, 0.2); color: var(--package-color); }
 
+/* Recordings Tab */
+.recordings-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--bg-card);
+}
+
+.date-filter {
+  flex: 1;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: none;
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  color-scheme: dark;
+}
+
+.recordings-stats {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--bg-card);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.recordings-list {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recording-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.recording-item:active {
+  background: var(--bg-card);
+}
+
+.recording-thumbnail {
+  width: 80px;
+  height: 60px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--bg-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.recording-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.recording-thumbnail svg {
+  color: var(--text-secondary);
+}
+
+.recording-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+.recording-date {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.recording-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.recording-duration {
+  color: var(--accent);
+}
+
+/* Video Modal */
+.video-modal-content {
+  max-height: 95vh;
+}
+
+.video-modal-body {
+  padding: 0 !important;
+}
+
+.video-container {
+  width: 100%;
+  background: #000;
+}
+
+.video-container video {
+  width: 100%;
+  max-height: 50vh;
+  display: block;
+}
+
+.video-info {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--bg-card);
+}
+
+.video-info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.video-info-label {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.video-info-value {
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.video-modal-body .btn-danger {
+  margin: 16px 20px;
+  margin-bottom: calc(20px + var(--safe-bottom));
+  width: calc(100% - 40px);
+}
+
+/* Person Alert Notification */
+.person-alert {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.9);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  padding-top: calc(20px + var(--safe-top));
+  animation: alertFadeIn 0.3s ease;
+}
+
+@keyframes alertFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.person-alert.hidden {
+  display: none;
+}
+
+.alert-content {
+  width: 100%;
+  max-width: 400px;
+  background: var(--bg-secondary);
+  border-radius: 16px;
+  overflow: hidden;
+  border: 2px solid var(--danger);
+  box-shadow: 0 0 40px rgba(255, 71, 87, 0.3);
+}
+
+.alert-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(255, 71, 87, 0.2);
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.alert-header svg {
+  flex-shrink: 0;
+}
+
+.alert-header span {
+  flex: 1;
+}
+
+.alert-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  padding: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.alert-close:active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.alert-body {
+  padding: 0;
+}
+
+.alert-body img {
+  width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  background: #000;
+  display: block;
+}
+
+.alert-info {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+}
+
+.person-alert .btn-primary {
+  margin: 16px;
+  margin-top: 0;
+}
+
 /* Utilities */
 .hidden {
   display: none !important;

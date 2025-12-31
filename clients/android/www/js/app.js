@@ -12,6 +12,8 @@ class CamaiApp {
     this.currentTab = 'live';
     this.showOverlays = true;
     this.eventsCache = [];
+    this.recordingsCache = [];
+    this.currentRecording = null;
 
     this.init();
   }
@@ -160,6 +162,31 @@ class CamaiApp {
       document.getElementById('event-snapshot-loading').style.display = 'none';
       document.getElementById('event-snapshot-error').classList.remove('hidden');
     });
+
+    // Recordings tab
+    document.getElementById('recording-date-filter').addEventListener('change', (e) => {
+      this.loadRecordings(e.target.value);
+    });
+    document.getElementById('refresh-recordings').addEventListener('click', () => {
+      const dateFilter = document.getElementById('recording-date-filter').value;
+      this.loadRecordings(dateFilter);
+    });
+
+    // Video modal
+    document.getElementById('close-video-modal').addEventListener('click', () => this.closeVideoModal());
+    document.getElementById('video-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'video-modal') {
+        this.closeVideoModal();
+      }
+    });
+    document.getElementById('delete-recording-btn').addEventListener('click', () => this.deleteRecording());
+
+    // Person alert
+    document.getElementById('close-alert').addEventListener('click', () => this.closePersonAlert());
+    document.getElementById('view-live-btn').addEventListener('click', () => {
+      this.closePersonAlert();
+      this.switchTab('live');
+    });
   }
 
   async connect() {
@@ -276,6 +303,8 @@ class CamaiApp {
           const data = JSON.parse(event.data);
           if (data.type === 'stats') {
             this.updateLiveStats(data);
+          } else if (data.type === 'person_alert') {
+            this.showPersonAlert(data);
           }
         } catch (e) {
           // Ignore parse errors
@@ -714,6 +743,9 @@ class CamaiApp {
       this.loadSystemStats();
     } else if (tab === 'stats') {
       this.loadStats();
+    } else if (tab === 'recordings') {
+      this.loadRecordings();
+      this.loadRecordingStats();
     }
   }
 
@@ -783,6 +815,167 @@ class CamaiApp {
   closeEventModal() {
     document.getElementById('event-modal').classList.add('hidden');
     document.getElementById('event-snapshot').src = '';
+  }
+
+  // === RECORDINGS ===
+
+  async loadRecordings(date = null) {
+    if (!this.isConnected) return;
+
+    try {
+      let url = `${this.serverUrl}/api/recordings?limit=50`;
+      if (date) url += `&date=${date}`;
+
+      const response = await fetch(url);
+      const data = await response.json();
+
+      this.recordingsCache = data.recordings || [];
+
+      const container = document.getElementById('recordings-list');
+
+      if (!this.recordingsCache || this.recordingsCache.length === 0) {
+        container.innerHTML = '<p class="empty-state">No recordings found</p>';
+        return;
+      }
+
+      container.innerHTML = this.recordingsCache.map(rec => `
+        <div class="recording-item" data-id="${rec.id}">
+          <div class="recording-thumbnail">
+            ${rec.thumbnail_path
+              ? `<img src="${this.serverUrl}/api/recordings/${rec.id}/thumbnail" alt="Thumbnail">`
+              : `<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>`
+            }
+          </div>
+          <div class="recording-info">
+            <div class="recording-date">${rec.formatted_time || this.formatTime(rec.start_time)}</div>
+            <div class="recording-meta">
+              <span class="recording-duration">${rec.formatted_duration || '--:--'}</span>
+              <span>${rec.formatted_size || '--'}</span>
+            </div>
+          </div>
+        </div>
+      `).join('');
+
+      // Add click handlers
+      container.querySelectorAll('.recording-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const recordingId = parseInt(item.dataset.id);
+          this.showRecording(recordingId);
+        });
+      });
+
+    } catch (error) {
+      console.error('Failed to load recordings:', error);
+      document.getElementById('recordings-list').innerHTML = '<p class="empty-state">Failed to load recordings</p>';
+    }
+  }
+
+  async loadRecordingStats() {
+    if (!this.isConnected) return;
+
+    try {
+      const response = await fetch(`${this.serverUrl}/api/recordings/stats`);
+      const stats = await response.json();
+
+      document.getElementById('recordings-count').textContent = `${stats.total_recordings || 0} recordings`;
+      document.getElementById('recordings-storage').textContent = stats.formatted_size || '0 GB used';
+
+    } catch (error) {
+      console.error('Failed to load recording stats:', error);
+    }
+  }
+
+  showRecording(recordingId) {
+    const recording = this.recordingsCache.find(r => r.id === recordingId);
+    if (!recording) return;
+
+    this.currentRecording = recording;
+
+    // Set video source
+    const video = document.getElementById('recording-video');
+    video.src = `${this.serverUrl}/api/recordings/${recordingId}/stream`;
+
+    // Set info
+    document.getElementById('video-modal-title').textContent = recording.filename || 'Recording';
+    document.getElementById('video-info-date').textContent = recording.formatted_time || this.formatFullTime(recording.start_time);
+    document.getElementById('video-info-duration').textContent = recording.formatted_duration || '--:--';
+    document.getElementById('video-info-size').textContent = recording.formatted_size || '--';
+
+    // Show modal
+    document.getElementById('video-modal').classList.remove('hidden');
+  }
+
+  closeVideoModal() {
+    const video = document.getElementById('recording-video');
+    video.pause();
+    video.src = '';
+    document.getElementById('video-modal').classList.add('hidden');
+    this.currentRecording = null;
+  }
+
+  async deleteRecording() {
+    if (!this.currentRecording) return;
+
+    if (!confirm('Are you sure you want to delete this recording?')) return;
+
+    try {
+      const response = await fetch(`${this.serverUrl}/api/recordings/${this.currentRecording.id}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        this.closeVideoModal();
+        // Refresh recordings list
+        const dateFilter = document.getElementById('recording-date-filter').value;
+        this.loadRecordings(dateFilter);
+        this.loadRecordingStats();
+      } else {
+        alert('Failed to delete recording');
+      }
+    } catch (error) {
+      console.error('Failed to delete recording:', error);
+      alert('Failed to delete recording');
+    }
+  }
+
+  // === PERSON ALERT ===
+
+  showPersonAlert(data) {
+    // Set screenshot if available
+    const screenshotImg = document.getElementById('alert-screenshot');
+    if (data.screenshot) {
+      screenshotImg.src = `data:image/jpeg;base64,${data.screenshot}`;
+      screenshotImg.style.display = 'block';
+    } else {
+      screenshotImg.style.display = 'none';
+    }
+
+    // Set time
+    const timestamp = data.timestamp ? data.timestamp * 1000 : Date.now();
+    document.getElementById('alert-time').textContent = new Date(timestamp).toLocaleTimeString();
+
+    // Set detections info
+    const detections = data.detections || [];
+    const personCount = detections.filter(d => d.class === 'person').length;
+    document.getElementById('alert-detections').textContent =
+      personCount > 1 ? `${personCount} people detected` : '1 person detected';
+
+    // Show alert
+    document.getElementById('person-alert').classList.remove('hidden');
+
+    // Vibrate if supported
+    if (navigator.vibrate) {
+      navigator.vibrate([200, 100, 200]);
+    }
+
+    // Auto-hide after 10 seconds
+    setTimeout(() => {
+      this.closePersonAlert();
+    }, 10000);
+  }
+
+  closePersonAlert() {
+    document.getElementById('person-alert').classList.add('hidden');
   }
 
   formatFullTime(timestamp) {

@@ -85,6 +85,28 @@ class Database:
                 )
             """)
 
+            # Recordings table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS recordings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    filename TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    start_time REAL NOT NULL,
+                    end_time REAL,
+                    duration REAL,
+                    trigger_type TEXT DEFAULT 'person',
+                    thumbnail_path TEXT,
+                    file_size INTEGER DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Index for faster timestamp queries on recordings
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_recordings_start_time
+                ON recordings(start_time DESC)
+            """)
+
             conn.commit()
             logger.info(f"Database initialized: {self.db_path}")
 
@@ -373,6 +395,138 @@ class Database:
                 logger.info(f"Cleanup: deleted {deleted_events} events, {deleted_hourly} hourly stats, {deleted_daily} daily stats older than {days_to_keep} days")
 
             return deleted_events
+
+    # === RECORDINGS METHODS ===
+
+    def add_recording(self, recording: Dict) -> int:
+        """Add a recording to the database. Returns recording ID."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO recordings (filename, path, start_time, end_time,
+                                       duration, trigger_type, thumbnail_path, file_size)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                recording.get("filename", ""),
+                recording.get("path", ""),
+                recording.get("start_time", time.time()),
+                recording.get("end_time"),
+                recording.get("duration"),
+                recording.get("trigger_type", "person"),
+                recording.get("thumbnail_path", ""),
+                recording.get("file_size", 0),
+            ))
+
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_recordings(self, limit: int = 50, offset: int = 0,
+                       date: str = None, since: float = None) -> List[Dict]:
+        """Get recordings with optional filtering."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+
+            query = "SELECT * FROM recordings WHERE 1=1"
+            params = []
+
+            if date:
+                # Filter by date (recordings starting on that date)
+                start_of_day = datetime.strptime(date, "%Y-%m-%d").timestamp()
+                end_of_day = start_of_day + 86400
+                query += " AND start_time >= ? AND start_time < ?"
+                params.extend([start_of_day, end_of_day])
+
+            if since:
+                query += " AND start_time >= ?"
+                params.append(since)
+
+            query += " ORDER BY start_time DESC LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+            return [dict(row) for row in rows]
+
+    def get_recording(self, recording_id: int) -> Optional[Dict]:
+        """Get a single recording by ID."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT * FROM recordings WHERE id = ?", (recording_id,))
+            row = cursor.fetchone()
+
+            return dict(row) if row else None
+
+    def delete_recording(self, recording_id: int) -> bool:
+        """Delete a recording from the database."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("DELETE FROM recordings WHERE id = ?", (recording_id,))
+            conn.commit()
+
+            return cursor.rowcount > 0
+
+    def get_recording_stats(self) -> Dict:
+        """Get recording statistics."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT
+                    COUNT(*) as total_recordings,
+                    SUM(duration) as total_duration,
+                    SUM(file_size) as total_size,
+                    MIN(start_time) as oldest,
+                    MAX(start_time) as newest
+                FROM recordings
+            """)
+
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "total_recordings": row["total_recordings"] or 0,
+                    "total_duration": row["total_duration"] or 0,
+                    "total_size": row["total_size"] or 0,
+                    "oldest": row["oldest"],
+                    "newest": row["newest"],
+                }
+
+            return {"total_recordings": 0, "total_duration": 0, "total_size": 0}
+
+    def cleanup_old_recordings(self, days_to_keep: int = 30) -> List[str]:
+        """Delete recording records older than specified days. Returns list of paths to delete."""
+        cutoff = time.time() - (days_to_keep * 86400)
+
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+
+            # Get paths of recordings to delete
+            cursor.execute(
+                "SELECT path, thumbnail_path FROM recordings WHERE start_time < ?",
+                (cutoff,)
+            )
+            rows = cursor.fetchall()
+
+            paths_to_delete = []
+            for row in rows:
+                if row["path"]:
+                    paths_to_delete.append(row["path"])
+                if row["thumbnail_path"]:
+                    paths_to_delete.append(row["thumbnail_path"])
+
+            # Delete from database
+            cursor.execute("DELETE FROM recordings WHERE start_time < ?", (cutoff,))
+            deleted_count = cursor.rowcount
+
+            conn.commit()
+
+            if deleted_count > 0:
+                logger.info(f"Cleanup: removed {deleted_count} recording records older than {days_to_keep} days")
+
+            return paths_to_delete
 
 
 # Singleton instance

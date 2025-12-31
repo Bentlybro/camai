@@ -60,6 +60,7 @@
       <!-- Tab Navigation -->
       <nav class="tab-nav">
         <button class="tab-btn active" data-tab="live">Live</button>
+        <button class="tab-btn" data-tab="recordings">Recordings</button>
         <button class="tab-btn" data-tab="events">Events</button>
         <button class="tab-btn" data-tab="stats">Stats</button>
         <button class="tab-btn" data-tab="system">System</button>
@@ -151,6 +152,25 @@
             <div id="detections-list" class="detections-list">
               <p class="empty-state">No active detections</p>
             </div>
+          </div>
+        </div>
+
+        <!-- Recordings Tab -->
+        <div id="tab-recordings" class="tab-panel">
+          <div class="recordings-header">
+            <input type="date" id="recording-date-filter" class="date-filter">
+            <button id="refresh-recordings" class="icon-btn">
+              <svg viewBox="0 0 24 24" width="20" height="20">
+                <path fill="currentColor" d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+              </svg>
+            </button>
+          </div>
+          <div class="recordings-stats">
+            <span id="recordings-count">-- recordings</span>
+            <span id="recordings-storage">-- GB used</span>
+          </div>
+          <div id="recordings-list" class="recordings-list">
+            <p class="empty-state">Loading recordings...</p>
           </div>
         </div>
 
@@ -386,6 +406,67 @@
               <p class="about-text">AI-Powered Camera Monitoring</p>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Video Player Modal -->
+      <div id="video-modal" class="modal hidden">
+        <div class="modal-content video-modal-content">
+          <div class="modal-header">
+            <h2 id="video-modal-title">Recording</h2>
+            <button id="close-video-modal" class="icon-btn">
+              <svg viewBox="0 0 24 24" width="24" height="24">
+                <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+              </svg>
+            </button>
+          </div>
+          <div class="modal-body video-modal-body">
+            <div class="video-container">
+              <video id="recording-video" controls playsinline>
+                Your browser does not support video playback.
+              </video>
+            </div>
+            <div class="video-info">
+              <div class="video-info-row">
+                <span class="video-info-label">Date</span>
+                <span id="video-info-date" class="video-info-value">--</span>
+              </div>
+              <div class="video-info-row">
+                <span class="video-info-label">Duration</span>
+                <span id="video-info-duration" class="video-info-value">--</span>
+              </div>
+              <div class="video-info-row">
+                <span class="video-info-label">Size</span>
+                <span id="video-info-size" class="video-info-value">--</span>
+              </div>
+            </div>
+            <button id="delete-recording-btn" class="btn-danger">Delete Recording</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Person Alert Notification -->
+      <div id="person-alert" class="person-alert hidden">
+        <div class="alert-content">
+          <div class="alert-header">
+            <svg viewBox="0 0 24 24" width="24" height="24">
+              <path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+            </svg>
+            <span>Person Detected</span>
+            <button id="close-alert" class="alert-close">
+              <svg viewBox="0 0 24 24" width="20" height="20">
+                <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+              </svg>
+            </button>
+          </div>
+          <div class="alert-body">
+            <img id="alert-screenshot" src="" alt="Detection Screenshot">
+            <div class="alert-info">
+              <span id="alert-time">--</span>
+              <span id="alert-detections">--</span>
+            </div>
+          </div>
+          <button id="view-live-btn" class="btn-primary">View Live</button>
         </div>
       </div>
     </div>
