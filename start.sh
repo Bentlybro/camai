@@ -28,7 +28,7 @@ sudo docker run -it --rm --ipc=host --runtime=nvidia \
     -v "$(pwd)":/app -w /app \
     $IMAGE \
     bash -c "apt-get update -qq && apt-get install -y -qq ffmpeg > /dev/null && \
-             pip install -q python-dotenv onvif-zeep fastapi 'uvicorn[standard]' firebase-admin 'passlib[bcrypt]' 'python-jose[cryptography]' && \
+             pip install -q python-dotenv onvif-zeep fastapi 'uvicorn[standard]' firebase-admin 'bcrypt<4.1.0' 'passlib[bcrypt]' 'python-jose[cryptography]' && \
              WSDL_DIR=\$(python3 -c 'import onvif; import os; print(os.path.dirname(onvif.__file__))') && \
              if [ ! -f \"\$WSDL_DIR/wsdl/devicemgmt.wsdl\" ]; then \
                echo 'Downloading ONVIF WSDL files...' && \
