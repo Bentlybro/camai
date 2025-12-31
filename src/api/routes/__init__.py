@@ -1,2 +1,2 @@
 """API route modules."""
-from . import settings, ptz, events, streams, stats, system, recordings
+from . import settings, ptz, events, streams, stats, system, recordings, notifications

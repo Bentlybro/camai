@@ -3,6 +3,7 @@
 
 // Import Capacitor plugins when available
 let LocalNotifications = null;
+let PushNotifications = null;
 let BackgroundMode = null;
 let App = null;
 let camaiAppInstance = null;
@@ -11,22 +12,70 @@ let camaiAppInstance = null;
 document.addEventListener('DOMContentLoaded', async () => {
   if (window.Capacitor && window.Capacitor.Plugins) {
     LocalNotifications = window.Capacitor.Plugins.LocalNotifications;
+    PushNotifications = window.Capacitor.Plugins.PushNotifications;
     BackgroundMode = window.Capacitor.Plugins.BackgroundMode;
     App = window.Capacitor.Plugins.App;
 
-    // Request notification permissions
+    // Request notification permissions (local notifications as fallback)
     if (LocalNotifications) {
       try {
         const permResult = await LocalNotifications.requestPermissions();
-        console.log('Notification permission:', permResult.display);
-
-        // Listen for notification clicks to open the app
-        LocalNotifications.addListener('localNotificationActionPerformed', (notification) => {
-          console.log('Notification clicked:', notification);
-          // App will be brought to foreground automatically
-        });
+        console.log('Local notification permission:', permResult.display);
       } catch (e) {
-        console.log('Notifications not available:', e);
+        console.log('Local notifications not available:', e);
+      }
+    }
+
+    // Setup Firebase Push Notifications
+    if (PushNotifications) {
+      try {
+        // Request permission
+        const permResult = await PushNotifications.requestPermissions();
+        console.log('Push notification permission:', permResult.receive);
+
+        if (permResult.receive === 'granted') {
+          // Register for push notifications
+          await PushNotifications.register();
+          console.log('Registered for push notifications');
+        }
+
+        // Listen for registration success - get the FCM token
+        PushNotifications.addListener('registration', (token) => {
+          console.log('FCM Token:', token.value);
+          // Store the token for later registration with server
+          localStorage.setItem('fcm_token', token.value);
+
+          // If app is already connected, register the token
+          if (camaiAppInstance && camaiAppInstance.isConnected) {
+            camaiAppInstance.registerFCMToken(token.value);
+          }
+        });
+
+        // Listen for registration errors
+        PushNotifications.addListener('registrationError', (error) => {
+          console.error('FCM registration error:', error);
+        });
+
+        // Listen for push notifications received while app is in foreground
+        PushNotifications.addListener('pushNotificationReceived', (notification) => {
+          console.log('Push notification received:', notification);
+          // Vibrate on notification
+          if (navigator.vibrate) {
+            navigator.vibrate([200, 100, 200]);
+          }
+        });
+
+        // Listen for push notification action (tap)
+        PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
+          console.log('Push notification tapped:', notification);
+          // App is brought to foreground, switch to live tab
+          if (camaiAppInstance) {
+            camaiAppInstance.switchTab('live');
+          }
+        });
+
+      } catch (e) {
+        console.log('Push notifications not available:', e);
       }
     }
 
@@ -52,17 +101,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Handle app coming back to foreground - refresh stream and reconnect WebSocket if needed
         BackgroundMode.addListener('appInForeground', () => {
-          console.log('App returned to foreground');
+          console.log('App returned to foreground (BackgroundMode)');
           if (camaiAppInstance && camaiAppInstance.isConnected) {
-            // Always refresh the stream - it dies when app goes to background
-            console.log('Refreshing stream after returning to foreground...');
-            camaiAppInstance.updateStream();
-
-            // Check WebSocket state and reconnect if needed
-            if (!camaiAppInstance.ws || camaiAppInstance.ws.readyState !== WebSocket.OPEN) {
-              console.log('WebSocket disconnected while in background, reconnecting...');
-              camaiAppInstance.connectWebSocket();
-            }
+            camaiAppInstance.handleAppResume();
           }
         });
 
@@ -72,19 +113,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
-    // Also listen for App state changes (Capacitor core)
-    if (App) {
+    // Also listen for App state changes (Capacitor core) - only if BackgroundMode not available
+    if (App && !BackgroundMode) {
       App.addListener('appStateChange', ({ isActive }) => {
         console.log('App state changed, isActive:', isActive);
         if (isActive && camaiAppInstance && camaiAppInstance.isConnected) {
-          // App became active - refresh stream and ensure WebSocket is connected
-          console.log('Refreshing stream after app resume...');
-          camaiAppInstance.updateStream();
-
-          if (!camaiAppInstance.ws || camaiAppInstance.ws.readyState !== WebSocket.OPEN) {
-            console.log('Reconnecting WebSocket after app resume...');
-            camaiAppInstance.connectWebSocket();
-          }
+          camaiAppInstance.handleAppResume();
         }
       });
     }
@@ -108,6 +142,7 @@ class CamaiApp {
     this.recordingsCache = [];
     this.currentRecording = null;
     this.notificationId = 1;
+    this.lastResumeTime = 0; // Debounce app resume
     this.isInBackground = false;
 
     // Store instance for background handlers
@@ -357,8 +392,66 @@ class CamaiApp {
     this.checkPTZ();
     this.loadServerSettings();
 
+    // Register FCM token for push notifications
+    this.registerFCMToken();
+
     // Update server display
     document.getElementById('setting-server').textContent = this.serverUrl;
+  }
+
+  handleAppResume() {
+    // Debounce - ignore if called within 2 seconds of last resume
+    const now = Date.now();
+    if (now - this.lastResumeTime < 2000) {
+      console.log('Ignoring duplicate resume event');
+      return;
+    }
+    this.lastResumeTime = now;
+
+    console.log('Handling app resume...');
+
+    // Refresh the stream - it dies when app goes to background
+    this.updateStream();
+
+    // Check WebSocket state and reconnect if needed
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.log('WebSocket not open, reconnecting...');
+      this.connectWebSocket();
+    }
+  }
+
+  async registerFCMToken(token = null) {
+    // Register FCM token with server for push notifications
+    try {
+      // Get token from parameter or localStorage
+      const fcmToken = token || localStorage.getItem('fcm_token');
+      if (!fcmToken) {
+        console.log('No FCM token available yet');
+        return;
+      }
+
+      // Get device name
+      const deviceName = navigator.userAgent.includes('Android') ? 'Android Phone' : 'Mobile Device';
+
+      const response = await fetch(`${this.serverUrl}/api/notifications/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: fcmToken,
+          device_name: deviceName,
+          platform: 'android'
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('FCM token registered:', data.message);
+      } else {
+        console.error('Failed to register FCM token:', response.status);
+      }
+    } catch (error) {
+      console.error('Error registering FCM token:', error);
+    }
   }
 
   updateStream() {
@@ -1168,20 +1261,26 @@ class CamaiApp {
   // === PERSON ALERT ===
 
   showPersonAlert(data) {
-    // Get detection info for notification
-    const timestamp = data.timestamp ? data.timestamp * 1000 : Date.now();
-    const detections = data.detections || [];
-    const personCount = detections.filter(d => d.class === 'person').length;
-    const alertText = personCount > 1 ? `${personCount} people detected` : '1 person detected';
+    // Person alert received via WebSocket
+    // Firebase handles the actual push notification - we just vibrate here for in-app feedback
+    console.log('Person alert received via WebSocket');
 
-    // Vibrate if supported
+    // Vibrate if supported (in-app haptic feedback)
     if (navigator.vibrate) {
       navigator.vibrate([200, 100, 200]);
     }
 
-    // Send local notification with screenshot (pull-down notification only)
-    const screenshotBase64 = data.screenshot || null;
-    this.sendLocalNotification('Person Detected', alertText, timestamp, screenshotBase64);
+    // Note: Push notifications are handled by Firebase Cloud Messaging
+    // Local notifications are kept as fallback if FCM isn't working
+    if (!localStorage.getItem('fcm_token')) {
+      // No FCM token - use local notification as fallback
+      const detections = data.detections || [];
+      const personCount = detections.filter(d => d.class === 'person').length;
+      const alertText = personCount > 1 ? `${personCount} people detected` : '1 person detected';
+      const timestamp = data.timestamp ? data.timestamp * 1000 : Date.now();
+      const screenshotBase64 = data.screenshot || null;
+      this.sendLocalNotification('Person Detected', alertText, timestamp, screenshotBase64);
+    }
   }
 
   async sendLocalNotification(title, body, timestamp, screenshotBase64 = null) {

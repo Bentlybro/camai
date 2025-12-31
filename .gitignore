@@ -31,3 +31,5 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+clients/android/android/app/google-services.json
+firebase-credentials.json

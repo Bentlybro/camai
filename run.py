@@ -30,6 +30,7 @@ from pose import PoseEstimator
 from classifier import ImageClassifier
 from recording import RecordingManager
 from database import init_database, get_database
+from fcm import get_firebase_service, FIREBASE_AVAILABLE
 import api
 
 # Also import from new modular structure (api uses this internally)
@@ -79,6 +80,17 @@ def main():
     db.cleanup_old_events(days_to_keep=7)
     db.cleanup_old_recordings(days_to_keep=30)
 
+    # Initialize Firebase for push notifications
+    firebase = None
+    if FIREBASE_AVAILABLE:
+        firebase = get_firebase_service()
+        if firebase.initialized:
+            log.info(f"Firebase initialized - {len(firebase.get_registered_devices())} devices registered")
+        else:
+            log.warning("Firebase credentials not found - push notifications disabled")
+    else:
+        log.warning("Firebase SDK not installed - run: pip install firebase-admin")
+
     # Note: RecordingManager cleanup runs after it's initialized below
 
     if cfg.enable_discord and cfg.discord_webhook:
@@ -98,6 +110,26 @@ def main():
         except Exception as e:
             log.warning(f"Failed to save recording to database: {e}")
 
+    def on_person_alert(alert_data):
+        """Callback when person is detected - sends WebSocket and Firebase notifications."""
+        # Send via WebSocket for in-app updates
+        broadcast_alert(alert_data)
+
+        # Send via Firebase for push notifications
+        if firebase and firebase.initialized:
+            try:
+                detections = alert_data.get("detections", [])
+                person_count = len([d for d in detections if d.get("class") == "person"])
+                confidence = detections[0].get("confidence", 0.9) if detections else 0.9
+
+                firebase.send_person_alert(
+                    person_count=max(1, person_count),
+                    confidence=confidence,
+                    timestamp=alert_data.get("timestamp"),
+                )
+            except Exception as e:
+                log.warning(f"Failed to send Firebase notification: {e}")
+
     recorder = RecordingManager(
         output_dir="recordings",
         buffer_seconds=5.0,
@@ -106,7 +138,7 @@ def main():
         fps=15,
         resolution=(cfg.capture_width, cfg.capture_height),
         on_recording_complete=on_recording_complete,
-        on_person_alert=broadcast_alert,
+        on_person_alert=on_person_alert,
     )
 
     # Run recording file cleanup on startup
@@ -233,6 +265,7 @@ def main():
     api.set_state("stream_server", stream)
     api.set_state("notifier", notifier)
     api.set_state("recorder", recorder)
+    api.set_state("firebase", firebase)
 
     # Start FastAPI in a thread
     api_thread = threading.Thread(target=run_fastapi, args=(cfg.stream_port,), daemon=True)

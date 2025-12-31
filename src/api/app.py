@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import settings, ptz, events, streams, stats, system, recordings
+from .routes import settings, ptz, events, streams, stats, system, recordings, notifications
 from database import get_database
 
 logger = logging.getLogger(__name__)
@@ -64,6 +64,7 @@ def set_state(key: str, value):
     streams.set_state(_state)
     stats.set_state(_state)
     recordings.set_state(_state)
+    notifications.set_state(_state)
 
 
 def get_state(key: str):
@@ -204,6 +205,7 @@ events.set_state(_state)
 streams.set_state(_state)
 stats.set_state(_state)
 recordings.set_state(_state)
+notifications.set_state(_state)
 
 # Include routers
 app.include_router(settings.router)
@@ -213,6 +215,7 @@ app.include_router(streams.router)
 app.include_router(stats.router)
 app.include_router(system.router)
 app.include_router(recordings.router)
+app.include_router(notifications.router)
 
 
 @app.get("/")
