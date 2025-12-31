@@ -7,10 +7,11 @@ class CamaiApp {
     this.isConnected = false;
     this.ws = null;
     this.statsInterval = null;
+    this.systemInterval = null;
     this.pingInterval = null;
-    this.systemStatsTimeout = null;
     this.currentTab = 'live';
     this.showOverlays = true;
+    this.eventsCache = [];
 
     this.init();
   }
@@ -106,6 +107,25 @@ class CamaiApp {
     // Fullscreen
     document.getElementById('fullscreen-btn').addEventListener('click', () => this.toggleFullscreen());
 
+    // PTZ auto-track toggle
+    document.getElementById('ptz-auto-track').addEventListener('change', (e) => {
+      this.toggleAutoTrack(e.target.checked);
+    });
+
+    // Detection settings toggles
+    document.getElementById('setting-detect-person').addEventListener('change', (e) => {
+      this.updateDisplaySettings({ detect_person: e.target.checked });
+    });
+    document.getElementById('setting-detect-vehicle').addEventListener('change', (e) => {
+      this.updateDisplaySettings({ detect_vehicle: e.target.checked });
+    });
+    document.getElementById('setting-detect-package').addEventListener('change', (e) => {
+      this.updateDisplaySettings({ detect_package: e.target.checked });
+    });
+    document.getElementById('setting-pose').addEventListener('change', (e) => {
+      this.updatePoseSettings({ enabled: e.target.checked });
+    });
+
     // Stream error handling
     document.getElementById('live-stream').addEventListener('error', () => {
       document.getElementById('stream-error').classList.remove('hidden');
@@ -119,6 +139,26 @@ class CamaiApp {
       if (e.target.id === 'settings-modal') {
         this.closeSettings();
       }
+    });
+
+    // Event modal
+    document.getElementById('close-event-modal').addEventListener('click', () => this.closeEventModal());
+    document.getElementById('event-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'event-modal') {
+        this.closeEventModal();
+      }
+    });
+
+    // Event snapshot loading
+    document.getElementById('event-snapshot').addEventListener('load', () => {
+      document.getElementById('event-snapshot').classList.add('loaded');
+      document.getElementById('event-snapshot-loading').style.display = 'none';
+      document.getElementById('event-snapshot-error').classList.add('hidden');
+    });
+    document.getElementById('event-snapshot').addEventListener('error', () => {
+      document.getElementById('event-snapshot').classList.remove('loaded');
+      document.getElementById('event-snapshot-loading').style.display = 'none';
+      document.getElementById('event-snapshot-error').classList.remove('hidden');
     });
   }
 
@@ -179,12 +219,18 @@ class CamaiApp {
     // Setup WebSocket
     this.connectWebSocket();
 
-    // Start polling
+    // Start polling for stats (every 2 seconds)
     this.statsInterval = setInterval(() => this.loadStats(), 2000);
+
+    // Start polling for system stats (every 3 seconds)
+    this.systemInterval = setInterval(() => this.loadSystemStats(), 3000);
+
+    // Initial loads
     this.loadStats();
     this.loadEvents();
     this.loadSystemStats();
     this.checkPTZ();
+    this.loadServerSettings();
 
     // Update server display
     document.getElementById('setting-server').textContent = this.serverUrl;
@@ -268,28 +314,38 @@ class CamaiApp {
     if (!this.isConnected) return;
 
     try {
-      const response = await fetch(`${this.serverUrl}/api/stats/summary`);
+      // Use full stats endpoint for detailed breakdown
+      const response = await fetch(`${this.serverUrl}/api/stats`);
       const data = await response.json();
 
-      // Update stats tab
-      document.getElementById('stat-persons').textContent = data.person_events_today || 0;
-      document.getElementById('stat-vehicles').textContent = data.vehicle_events_today || 0;
-      document.getElementById('stat-packages').textContent = data.package_events_today || 0;
-      document.getElementById('stat-total').textContent = data.events_today || 0;
+      // Update stats tab from summary
+      const summary = data.summary || {};
+      document.getElementById('stat-persons').textContent = summary.person_events || 0;
+      document.getElementById('stat-vehicles').textContent = summary.vehicle_events || 0;
+      document.getElementById('stat-packages').textContent = summary.package_events || 0;
+      document.getElementById('stat-total').textContent = summary.total_events_today || 0;
 
-      // Update uptime
-      if (data.uptime) {
-        document.getElementById('stat-uptime').textContent = this.formatUptime(data.uptime);
+      // Update uptime (already formatted from API)
+      const system = data.system || {};
+      if (system.uptime_formatted) {
+        document.getElementById('stat-uptime').textContent = system.uptime_formatted;
       }
 
       // Update performance
-      document.getElementById('perf-fps').textContent = (data.fps || 0).toFixed(1);
-      document.getElementById('perf-inference').textContent = `${(data.inference_time || 0).toFixed(1)} ms`;
-      document.getElementById('perf-tracked').textContent = data.tracked_objects || 0;
+      document.getElementById('perf-fps').textContent = (system.fps || 0).toFixed(1);
+      document.getElementById('perf-inference').textContent = `${(system.inference_ms || 0).toFixed(1)} ms`;
+      document.getElementById('perf-tracked').textContent = system.tracked_objects || 0;
 
       // Update stream overlay
-      document.getElementById('stream-fps').textContent = `${(data.fps || 0).toFixed(1)} FPS`;
-      document.getElementById('stream-latency').textContent = `${(data.inference_time || 0).toFixed(1)} ms`;
+      document.getElementById('stream-fps').textContent = `${(system.fps || 0).toFixed(1)} FPS`;
+      document.getElementById('stream-latency').textContent = `${(system.inference_ms || 0).toFixed(1)} ms`;
+
+      // Update live stats bar
+      document.getElementById('live-fps').textContent = (system.fps || 0).toFixed(1);
+      document.getElementById('live-inference').textContent = (system.inference_ms || 0).toFixed(1);
+      document.getElementById('live-frames').textContent = this.formatNumber(system.frame_count || 0);
+      document.getElementById('live-tracked').textContent = system.tracked_objects || 0;
+      document.getElementById('live-uptime').textContent = system.uptime_formatted || '--';
 
       // Load current detections
       await this.loadDetections();
@@ -324,17 +380,22 @@ class CamaiApp {
         return;
       }
 
-      container.innerHTML = data.detections.map(det => `
-        <div class="detection-item ${det.class_name}">
-          <div class="detection-icon ${det.class_name}">
-            ${this.getClassIcon(det.class_name)}
+      container.innerHTML = data.detections.map(det => {
+        const className = det.class || 'unknown';
+        const displayName = det.description || className;
+        const status = det.status ? ` (${det.status})` : '';
+        return `
+          <div class="detection-item ${className}">
+            <div class="detection-icon ${className}">
+              ${this.getClassIcon(className)}
+            </div>
+            <div class="detection-info">
+              <div class="detection-type">${displayName}${status}</div>
+              <div class="detection-conf">${(det.confidence * 100).toFixed(0)}% confidence</div>
+            </div>
           </div>
-          <div class="detection-info">
-            <div class="detection-type">${det.class_name}</div>
-            <div class="detection-conf">${(det.confidence * 100).toFixed(0)}% confidence</div>
-          </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
 
     } catch (error) {
       console.error('Failed to load detections:', error);
@@ -347,28 +408,43 @@ class CamaiApp {
     try {
       const filter = document.getElementById('event-filter').value;
       let url = `${this.serverUrl}/api/events?limit=50`;
-      if (filter) url += `&type=${filter}`;
+      if (filter) url += `&event_type=${filter}`;
 
       const response = await fetch(url);
-      const data = await response.json();
+      const events = await response.json();  // API returns array directly
+
+      // Store events for detail view
+      this.eventsCache = events;
 
       const container = document.getElementById('events-list');
 
-      if (!data.events || data.events.length === 0) {
+      if (!events || events.length === 0) {
         container.innerHTML = '<p class="empty-state">No events found</p>';
         return;
       }
 
-      container.innerHTML = data.events.map(event => `
-        <div class="event-item" data-id="${event.id}">
-          <span class="event-type-badge ${event.class_name}">${event.class_name}</span>
-          <div class="event-details">
-            <div class="event-title">${this.formatEventType(event.type)}</div>
-            <div class="event-time">${this.formatTime(event.timestamp)}</div>
+      container.innerHTML = events.map(event => {
+        // Extract class from event type (e.g., "person_detected" -> "person")
+        const eventClass = this.extractClassFromType(event.type);
+        return `
+          <div class="event-item" data-id="${event.id}">
+            <span class="event-type-badge ${eventClass}">${eventClass}</span>
+            <div class="event-details">
+              <div class="event-title">${this.formatEventType(event.type)}</div>
+              <div class="event-time">${this.formatTime(event.timestamp)}</div>
+            </div>
+            <span class="event-confidence">${(event.confidence * 100).toFixed(0)}%</span>
           </div>
-          <span class="event-confidence">${(event.confidence * 100).toFixed(0)}%</span>
-        </div>
-      `).join('');
+        `;
+      }).join('');
+
+      // Add click handlers to event items
+      container.querySelectorAll('.event-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const eventId = parseInt(item.dataset.id);
+          this.showEventDetail(eventId);
+        });
+      });
 
     } catch (error) {
       console.error('Failed to load events:', error);
@@ -380,62 +456,51 @@ class CamaiApp {
     if (!this.isConnected) return;
 
     try {
-      const endpoints = ['cpu', 'memory', 'gpu', 'disk', 'temperature'];
-      const results = await Promise.all(
-        endpoints.map(ep =>
-          fetch(`${this.serverUrl}/api/system/${ep}`)
-            .then(r => r.json())
-            .catch(() => ({}))
-        )
-      );
-
-      const [cpu, memory, gpu, disk, temp] = results;
+      // Use single endpoint for all system stats
+      const response = await fetch(`${this.serverUrl}/api/system`);
+      const data = await response.json();
 
       // CPU
-      if (cpu.percent !== undefined) {
-        document.getElementById('cpu-bar').style.width = `${cpu.percent}%`;
-        document.getElementById('cpu-label').textContent = `${cpu.percent.toFixed(1)}%`;
+      if (data.cpu) {
+        const cpuPercent = data.cpu.usage_percent || 0;
+        document.getElementById('cpu-bar').style.width = `${cpuPercent}%`;
+        document.getElementById('cpu-label').textContent = `${cpuPercent.toFixed(1)}%`;
       }
 
       // Memory
-      if (memory.percent !== undefined) {
-        document.getElementById('memory-bar').style.width = `${memory.percent}%`;
-        const used = (memory.used / 1024 / 1024 / 1024).toFixed(1);
-        const total = (memory.total / 1024 / 1024 / 1024).toFixed(1);
-        document.getElementById('memory-label').textContent = `${used} / ${total} GB`;
+      if (data.memory) {
+        const memPercent = data.memory.usage_percent || 0;
+        document.getElementById('memory-bar').style.width = `${memPercent}%`;
+        const used = data.memory.used_gb || (data.memory.used_bytes / 1024 / 1024 / 1024);
+        const total = data.memory.total_gb || (data.memory.total_bytes / 1024 / 1024 / 1024);
+        document.getElementById('memory-label').textContent = `${used.toFixed(1)} / ${total.toFixed(1)} GB`;
       }
 
       // GPU
-      if (gpu.utilization !== undefined) {
-        document.getElementById('gpu-bar').style.width = `${gpu.utilization}%`;
-        document.getElementById('gpu-label').textContent = `${gpu.utilization.toFixed(1)}%`;
-      } else if (gpu.memory_percent !== undefined) {
-        document.getElementById('gpu-bar').style.width = `${gpu.memory_percent}%`;
-        document.getElementById('gpu-label').textContent = `${gpu.memory_percent.toFixed(1)}% mem`;
+      if (data.gpu) {
+        const gpuPercent = data.gpu.usage_percent || 0;
+        document.getElementById('gpu-bar').style.width = `${gpuPercent}%`;
+        document.getElementById('gpu-label').textContent = `${gpuPercent.toFixed(1)}%`;
       }
 
       // Disk
-      if (disk.percent !== undefined) {
-        document.getElementById('disk-bar').style.width = `${disk.percent}%`;
-        const used = (disk.used / 1024 / 1024 / 1024).toFixed(1);
-        const total = (disk.total / 1024 / 1024 / 1024).toFixed(1);
-        document.getElementById('disk-label').textContent = `${used} / ${total} GB`;
+      if (data.disk) {
+        const diskPercent = data.disk.usage_percent || 0;
+        document.getElementById('disk-bar').style.width = `${diskPercent}%`;
+        const used = data.disk.used_gb || (data.disk.used_bytes / 1024 / 1024 / 1024);
+        const total = data.disk.total_gb || (data.disk.total_bytes / 1024 / 1024 / 1024);
+        document.getElementById('disk-label').textContent = `${used.toFixed(1)} / ${total.toFixed(1)} GB`;
       }
 
-      // Temperature
-      if (temp.cpu !== undefined) {
-        document.getElementById('temp-value').textContent = `${temp.cpu.toFixed(1)}°C`;
-      } else if (temp.gpu !== undefined) {
-        document.getElementById('temp-value').textContent = `${temp.gpu.toFixed(1)}°C`;
+      // Temperature - get max or average
+      if (data.temperature) {
+        const temp = data.temperature._max || data.temperature._avg ||
+                     data.temperature.CPU || data.temperature.GPU || 0;
+        document.getElementById('temp-value').textContent = `${temp.toFixed(1)}°C`;
       }
 
     } catch (error) {
       console.error('Failed to load system stats:', error);
-    }
-
-    // Refresh system stats every 5 seconds when on system tab
-    if (this.currentTab === 'system' && this.isConnected) {
-      this.systemStatsTimeout = setTimeout(() => this.loadSystemStats(), 5000);
     }
   }
 
@@ -448,9 +513,68 @@ class CamaiApp {
 
       if (data.connected) {
         document.getElementById('ptz-controls').classList.remove('hidden');
+
+        // Set auto-track checkbox state
+        const autoTrackCheckbox = document.getElementById('ptz-auto-track');
+        if (autoTrackCheckbox) {
+          autoTrackCheckbox.checked = data.auto_tracking || false;
+        }
+
+        // Load presets
+        await this.loadPTZPresets();
       }
     } catch (error) {
       // PTZ not available
+    }
+  }
+
+  async loadPTZPresets() {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/ptz/presets`);
+      const presets = await response.json();
+
+      const container = document.getElementById('ptz-presets');
+      if (!container || !presets || presets.length === 0) return;
+
+      container.innerHTML = presets.map(preset => `
+        <button class="ptz-preset-btn" data-token="${preset.token}">
+          ${preset.name}
+        </button>
+      `).join('');
+
+      // Add click handlers
+      container.querySelectorAll('.ptz-preset-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const token = e.target.dataset.token;
+          this.goToPreset(token);
+        });
+      });
+    } catch (error) {
+      console.error('Failed to load PTZ presets:', error);
+    }
+  }
+
+  async goToPreset(token) {
+    if (!this.isConnected) return;
+
+    try {
+      await fetch(`${this.serverUrl}/api/ptz/preset/${token}`, { method: 'POST' });
+    } catch (error) {
+      console.error('Failed to go to preset:', error);
+    }
+  }
+
+  async toggleAutoTrack(enabled) {
+    if (!this.isConnected) return;
+
+    try {
+      await fetch(`${this.serverUrl}/api/ptz/auto-track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled })
+      });
+    } catch (error) {
+      console.error('Failed to toggle auto-track:', error);
     }
   }
 
@@ -498,14 +622,80 @@ class CamaiApp {
     }
   }
 
+  async updateDisplaySettings(settings) {
+    if (!this.isConnected) return;
+
+    try {
+      await fetch(`${this.serverUrl}/api/settings/display`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      });
+    } catch (error) {
+      console.error('Failed to update display settings:', error);
+    }
+  }
+
+  async updatePoseSettings(settings) {
+    if (!this.isConnected) return;
+
+    try {
+      await fetch(`${this.serverUrl}/api/settings/pose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      });
+    } catch (error) {
+      console.error('Failed to update pose settings:', error);
+    }
+  }
+
+  async loadServerSettings() {
+    if (!this.isConnected) return;
+
+    try {
+      const response = await fetch(`${this.serverUrl}/api/settings`);
+      const settings = await response.json();
+
+      // Apply detection settings
+      if (settings.detection) {
+        const confSlider = document.getElementById('setting-confidence');
+        const confValue = document.getElementById('confidence-value');
+        if (confSlider && settings.detection.confidence) {
+          confSlider.value = settings.detection.confidence;
+          confValue.textContent = settings.detection.confidence;
+        }
+      }
+
+      // Apply display settings
+      if (settings.display) {
+        const overlaysCheckbox = document.getElementById('setting-overlays');
+        const personCheckbox = document.getElementById('setting-detect-person');
+        const vehicleCheckbox = document.getElementById('setting-detect-vehicle');
+        const packageCheckbox = document.getElementById('setting-detect-package');
+
+        if (overlaysCheckbox) overlaysCheckbox.checked = settings.display.show_overlays !== false;
+        if (personCheckbox) personCheckbox.checked = settings.display.detect_person !== false;
+        if (vehicleCheckbox) vehicleCheckbox.checked = settings.display.detect_vehicle !== false;
+        if (packageCheckbox) packageCheckbox.checked = settings.display.detect_package === true;
+
+        // Update local overlay setting
+        this.showOverlays = settings.display.show_overlays !== false;
+      }
+
+      // Apply pose settings
+      if (settings.pose) {
+        const poseCheckbox = document.getElementById('setting-pose');
+        if (poseCheckbox) poseCheckbox.checked = settings.pose.enabled === true;
+      }
+
+    } catch (error) {
+      console.error('Failed to load server settings:', error);
+    }
+  }
+
   switchTab(tab) {
     this.currentTab = tab;
-
-    // Clear system stats timeout if leaving system tab
-    if (this.systemStatsTimeout) {
-      clearTimeout(this.systemStatsTimeout);
-      this.systemStatsTimeout = null;
-    }
 
     // Update tab buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -517,11 +707,13 @@ class CamaiApp {
       panel.classList.toggle('active', panel.id === `tab-${tab}`);
     });
 
-    // Load data for specific tabs
+    // Load fresh data when switching to specific tabs
     if (tab === 'events') {
       this.loadEvents();
     } else if (tab === 'system') {
       this.loadSystemStats();
+    } else if (tab === 'stats') {
+      this.loadStats();
     }
   }
 
@@ -533,6 +725,72 @@ class CamaiApp {
     document.getElementById('settings-modal').classList.add('hidden');
   }
 
+  showEventDetail(eventId) {
+    const event = this.eventsCache.find(e => e.id === eventId);
+    if (!event) return;
+
+    const eventClass = this.extractClassFromType(event.type);
+
+    // Reset snapshot state
+    const snapshot = document.getElementById('event-snapshot');
+    snapshot.classList.remove('loaded');
+    document.getElementById('event-snapshot-loading').style.display = 'block';
+    document.getElementById('event-snapshot-error').classList.add('hidden');
+
+    // Set snapshot image
+    if (event.snapshot_path) {
+      snapshot.src = `${this.serverUrl}${event.snapshot_path}`;
+    } else {
+      snapshot.src = '';
+      document.getElementById('event-snapshot-loading').style.display = 'none';
+      document.getElementById('event-snapshot-error').classList.remove('hidden');
+    }
+
+    // Set event info
+    document.getElementById('event-modal-title').textContent = this.formatEventType(event.type);
+
+    const typeEl = document.getElementById('event-info-type');
+    typeEl.textContent = eventClass;
+    typeEl.className = `event-info-value type-badge ${eventClass}`;
+
+    document.getElementById('event-info-confidence').textContent = `${(event.confidence * 100).toFixed(0)}%`;
+    document.getElementById('event-info-time').textContent = this.formatFullTime(event.timestamp);
+
+    // Description (hide if empty)
+    const descRow = document.getElementById('event-info-description-row');
+    const descEl = document.getElementById('event-info-description');
+    if (event.description) {
+      descEl.textContent = event.description;
+      descRow.style.display = 'flex';
+    } else {
+      descRow.style.display = 'none';
+    }
+
+    // Color (hide if empty)
+    const colorRow = document.getElementById('event-info-color-row');
+    const colorEl = document.getElementById('event-info-color');
+    if (event.color) {
+      colorEl.textContent = event.color;
+      colorRow.style.display = 'flex';
+    } else {
+      colorRow.style.display = 'none';
+    }
+
+    // Show modal
+    document.getElementById('event-modal').classList.remove('hidden');
+  }
+
+  closeEventModal() {
+    document.getElementById('event-modal').classList.add('hidden');
+    document.getElementById('event-snapshot').src = '';
+  }
+
+  formatFullTime(timestamp) {
+    const ts = timestamp > 1e12 ? timestamp : timestamp * 1000;
+    const date = new Date(ts);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+  }
+
   disconnect() {
     this.isConnected = false;
 
@@ -541,13 +799,13 @@ class CamaiApp {
       clearInterval(this.statsInterval);
       this.statsInterval = null;
     }
+    if (this.systemInterval) {
+      clearInterval(this.systemInterval);
+      this.systemInterval = null;
+    }
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
-    }
-    if (this.systemStatsTimeout) {
-      clearTimeout(this.systemStatsTimeout);
-      this.systemStatsTimeout = null;
     }
 
     // Close WebSocket
@@ -595,8 +853,16 @@ class CamaiApp {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }
 
+  formatNumber(num) {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
+  }
+
   formatTime(timestamp) {
-    const date = new Date(timestamp);
+    // Handle Unix timestamps (seconds) - convert to milliseconds
+    const ts = timestamp > 1e12 ? timestamp : timestamp * 1000;
+    const date = new Date(ts);
     const now = new Date();
     const diff = now - date;
 
@@ -611,6 +877,16 @@ class CamaiApp {
     return type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   }
 
+  extractClassFromType(type) {
+    // Extract class from event type (e.g., "person_detected" -> "person", "vehicle_left" -> "vehicle")
+    if (!type) return 'unknown';
+    const lower = type.toLowerCase();
+    if (lower.includes('person')) return 'person';
+    if (lower.includes('vehicle') || lower.includes('car') || lower.includes('truck')) return 'vehicle';
+    if (lower.includes('package')) return 'package';
+    return 'unknown';
+  }
+
   getClassIcon(className) {
     const icons = {
       person: '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',
@@ -619,7 +895,9 @@ class CamaiApp {
       truck: '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>',
       package: '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zm-7-2h2v-4h4v-2h-4V7h-2v4H8v2h4z"/></svg>'
     };
-    return icons[className] || icons.person;
+    // Normalize class name - treat "car" as "vehicle" for styling
+    const normalizedClass = className === 'car' || className === 'truck' ? 'vehicle' : className;
+    return icons[className] || icons[normalizedClass] || icons.person;
   }
 }
 
