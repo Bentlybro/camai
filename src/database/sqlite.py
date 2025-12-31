@@ -107,6 +107,44 @@ class Database:
                 ON recordings(start_time DESC)
             """)
 
+            # Users table for authentication
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'user',
+                    approved INTEGER NOT NULL DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_login DATETIME
+                )
+            """)
+
+            # Sessions table for token management
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    token TEXT UNIQUE NOT NULL,
+                    stream_token TEXT UNIQUE,
+                    stream_token_expires DATETIME,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    expires_at DATETIME NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            """)
+
+            # Index for faster token lookups
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_token
+                ON sessions(token)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_stream_token
+                ON sessions(stream_token)
+            """)
+
             conn.commit()
             logger.info(f"Database initialized: {self.db_path}")
 
@@ -527,6 +565,182 @@ class Database:
                 logger.info(f"Cleanup: removed {deleted_count} recording records older than {days_to_keep} days")
 
             return paths_to_delete
+
+
+    # === USER METHODS ===
+
+    def get_user_count(self) -> int:
+        """Get total number of users."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM users")
+            return cursor.fetchone()[0]
+
+    def create_user(self, username: str, password_hash: str,
+                    role: str = "user", approved: int = 0) -> Optional[Dict]:
+        """Create a new user. Returns user dict or None if username exists."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    INSERT INTO users (username, password_hash, role, approved)
+                    VALUES (?, ?, ?, ?)
+                """, (username, password_hash, role, approved))
+                conn.commit()
+
+                return self.get_user_by_id(cursor.lastrowid)
+            except sqlite3.IntegrityError:
+                return None
+
+    def get_user_by_id(self, user_id: int) -> Optional[Dict]:
+        """Get user by ID."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_user_by_username(self, username: str) -> Optional[Dict]:
+        """Get user by username."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_all_users(self) -> List[Dict]:
+        """Get all users."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, username, role, approved, created_at, last_login FROM users ORDER BY created_at DESC")
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_pending_users(self) -> List[Dict]:
+        """Get users pending approval."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, username, role, created_at FROM users WHERE approved = 0 ORDER BY created_at DESC")
+            return [dict(row) for row in cursor.fetchall()]
+
+    def approve_user(self, user_id: int) -> bool:
+        """Approve a user."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET approved = 1 WHERE id = ?", (user_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def update_user_role(self, user_id: int, role: str) -> bool:
+        """Update user role."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def update_user_last_login(self, user_id: int):
+        """Update user's last login time."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (user_id,))
+            conn.commit()
+
+    def delete_user(self, user_id: int) -> bool:
+        """Delete a user and their sessions."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            # Delete sessions first
+            cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            # Delete user
+            cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def update_user_password(self, user_id: int, password_hash: str) -> bool:
+        """Update user password."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user_id))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    # === SESSION METHODS ===
+
+    def create_session(self, user_id: int, token: str, expires_at: datetime) -> int:
+        """Create a new session. Returns session ID."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO sessions (user_id, token, expires_at)
+                VALUES (?, ?, ?)
+            """, (user_id, token, expires_at))
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_session_by_token(self, token: str) -> Optional[Dict]:
+        """Get session by token (includes user info)."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT s.*, u.username, u.role, u.approved
+                FROM sessions s
+                JOIN users u ON s.user_id = u.id
+                WHERE s.token = ? AND s.expires_at > CURRENT_TIMESTAMP
+            """, (token,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def update_stream_token(self, session_id: int, stream_token: str, expires_at: datetime) -> bool:
+        """Update stream token for a session."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE sessions
+                SET stream_token = ?, stream_token_expires = ?
+                WHERE id = ?
+            """, (stream_token, expires_at, session_id))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def get_session_by_stream_token(self, stream_token: str) -> Optional[Dict]:
+        """Get session by stream token."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT s.*, u.username, u.role, u.approved
+                FROM sessions s
+                JOIN users u ON s.user_id = u.id
+                WHERE s.stream_token = ? AND s.stream_token_expires > CURRENT_TIMESTAMP
+            """, (stream_token,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def delete_session(self, token: str) -> bool:
+        """Delete a session by token."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM sessions WHERE token = ?", (token,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def delete_user_sessions(self, user_id: int) -> int:
+        """Delete all sessions for a user. Returns count deleted."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            conn.commit()
+            return cursor.rowcount
+
+    def cleanup_expired_sessions(self) -> int:
+        """Delete expired sessions. Returns count deleted."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM sessions WHERE expires_at < CURRENT_TIMESTAMP")
+            conn.commit()
+            deleted = cursor.rowcount
+            if deleted > 0:
+                logger.info(f"Cleaned up {deleted} expired sessions")
+            return deleted
 
 
 # Singleton instance

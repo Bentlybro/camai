@@ -15,6 +15,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from .routes import settings, ptz, events, streams, stats, system, recordings, notifications
 from database import get_database
 
+# Import auth module (optional - gracefully handle if not available)
+try:
+    from auth import auth_router, admin_router, is_auth_available
+    AUTH_AVAILABLE = True
+except ImportError:
+    AUTH_AVAILABLE = False
+    auth_router = None
+    admin_router = None
+
 logger = logging.getLogger(__name__)
 
 # Global for async event loop reference (set when WebSocket connects)
@@ -216,6 +225,12 @@ app.include_router(stats.router)
 app.include_router(system.router)
 app.include_router(recordings.router)
 app.include_router(notifications.router)
+
+# Include auth routers if available
+if AUTH_AVAILABLE and auth_router:
+    app.include_router(auth_router)
+    app.include_router(admin_router)
+    logger.info("Authentication routes enabled")
 
 
 @app.get("/")
