@@ -425,6 +425,10 @@
               <video id="recording-video" controls playsinline>
                 Your browser does not support video playback.
               </video>
+              <div id="video-fallback" class="video-fallback hidden">
+                <p>Video cannot play in browser (codec: mp4v)</p>
+                <p>Download the file to watch locally.</p>
+              </div>
             </div>
             <div class="video-info">
               <div class="video-info-row">
@@ -440,7 +444,10 @@
                 <span id="video-info-size" class="video-info-value">--</span>
               </div>
             </div>
-            <button id="delete-recording-btn" class="btn-danger">Delete Recording</button>
+            <div class="video-actions">
+              <a id="download-recording-btn" class="btn-primary" href="#" download>Download</a>
+              <button id="delete-recording-btn" class="btn-danger">Delete Recording</button>
+            </div>
           </div>
         </div>
       </div>

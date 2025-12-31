@@ -1575,17 +1575,30 @@ class CAMAIDashboard {
 
         if (title) title.textContent = recording?.filename || 'Recording';
 
-        // Show video player
+        // Show video player with fallback
         if (mediaContainer) {
             mediaContainer.innerHTML = `
-                <video controls autoplay>
+                <video controls autoplay playsinline>
                     <source src="/api/recordings/${id}/stream" type="video/mp4">
                     Your browser does not support video playback.
                 </video>
+                <div class="video-fallback" style="display:none;">
+                    <p>Video cannot play in browser (codec: mp4v)</p>
+                    <p>Download the file to watch locally.</p>
+                </div>
             `;
+            // Handle video error - show fallback message
+            const video = mediaContainer.querySelector('video');
+            if (video) {
+                video.onerror = () => {
+                    video.style.display = 'none';
+                    const fallback = mediaContainer.querySelector('.video-fallback');
+                    if (fallback) fallback.style.display = 'block';
+                };
+            }
         }
 
-        // Show details
+        // Show details with download button
         if (detailsContainer) {
             detailsContainer.innerHTML = `
                 <div class="detail-row">
@@ -1601,7 +1614,10 @@ class CAMAIDashboard {
                     <span class="detail-value">${recording?.formatted_size || '--'}</span>
                 </div>
                 <div class="recording-actions">
-                    <button class="btn-danger" onclick="dashboard.deleteRecording(${id})">Delete Recording</button>
+                    <a href="/api/recordings/${id}/download" class="btn btn-primary" download="${recording?.filename || 'recording.mp4'}">
+                        Download Recording
+                    </a>
+                    <button class="btn-danger" onclick="dashboard.deleteRecording(${id})">Delete</button>
                 </div>
             `;
         }

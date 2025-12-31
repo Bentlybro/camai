@@ -231,11 +231,56 @@ async def stream_recording(recording_id: int):
             video_path,
             media_type="video/mp4",
             filename=recording["filename"],
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Disposition": f"inline; filename=\"{recording['filename']}\"",
+            }
         )
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to stream recording: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{recording_id}/download")
+async def download_recording(recording_id: int):
+    """Download recording video file."""
+    try:
+        db = get_database()
+        recording = db.get_recording(recording_id)
+
+        if not recording:
+            raise HTTPException(status_code=404, detail="Recording not found")
+
+        recorder = _state.get("recorder")
+        if not recorder:
+            raise HTTPException(status_code=500, detail="Recording system not available")
+
+        stored_path = recording["path"]
+        video_path = recorder.get_recording_path(stored_path)
+
+        if not video_path or not video_path.exists():
+            # Try direct path
+            from pathlib import Path
+            direct_path = Path(stored_path)
+            if direct_path.exists():
+                video_path = direct_path
+            else:
+                raise HTTPException(status_code=404, detail="Video file not found")
+
+        return FileResponse(
+            video_path,
+            media_type="video/mp4",
+            filename=recording["filename"],
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{recording['filename']}\"",
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to download recording: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

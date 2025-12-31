@@ -1091,10 +1091,48 @@ html, body {
   font-size: 14px;
 }
 
-.video-modal-body .btn-danger {
-  margin: 16px 20px;
-  margin-bottom: calc(20px + var(--safe-bottom));
-  width: calc(100% - 40px);
+.video-fallback {
+  padding: 40px 20px;
+  text-align: center;
+  background: var(--bg-secondary);
+}
+
+.video-fallback p {
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.video-fallback p:first-child {
+  color: var(--warning);
+  font-weight: 500;
+}
+
+.video-actions {
+  display: flex;
+  gap: 12px;
+  padding: 16px 20px;
+  padding-bottom: calc(20px + var(--safe-bottom));
+}
+
+.video-actions .btn-primary,
+.video-actions .btn-danger {
+  flex: 1;
+  text-align: center;
+  text-decoration: none;
+}
+
+.video-actions .btn-primary {
+  background: var(--accent);
+  color: var(--bg-primary);
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  display: inline-block;
+}
+
+.video-actions .btn-danger {
+  margin: 0;
+  width: auto;
 }
 
 /* Person Alert Notification */

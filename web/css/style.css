@@ -1783,6 +1783,23 @@ input[type="range"]::-webkit-slider-thumb {
     max-height: 60vh;
 }
 
+.video-fallback {
+    padding: 40px 20px;
+    text-align: center;
+    background: var(--card-bg);
+    border-radius: 8px;
+}
+
+.video-fallback p {
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.video-fallback p:first-child {
+    color: var(--warning);
+    font-weight: 500;
+}
+
 .recording-actions {
     display: flex;
     gap: 1rem;

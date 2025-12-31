@@ -1025,7 +1025,25 @@ class CamaiApp {
 
     // Set video source
     const video = document.getElementById('recording-video');
+    const fallback = document.getElementById('video-fallback');
+
+    // Reset fallback state
+    fallback.classList.add('hidden');
+    video.style.display = 'block';
+
     video.src = `${this.serverUrl}/api/recordings/${recordingId}/stream`;
+
+    // Handle video error (codec not supported)
+    video.onerror = () => {
+      console.log('Video playback error - showing fallback');
+      video.style.display = 'none';
+      fallback.classList.remove('hidden');
+    };
+
+    // Set download link
+    const downloadBtn = document.getElementById('download-recording-btn');
+    downloadBtn.href = `${this.serverUrl}/api/recordings/${recordingId}/download`;
+    downloadBtn.download = recording.filename || `recording_${recordingId}.mp4`;
 
     // Set info
     document.getElementById('video-modal-title').textContent = recording.filename || 'Recording';
@@ -1041,6 +1059,9 @@ class CamaiApp {
     const video = document.getElementById('recording-video');
     video.pause();
     video.src = '';
+    video.onerror = null;
+    video.style.display = 'block';
+    document.getElementById('video-fallback').classList.add('hidden');
     document.getElementById('video-modal').classList.add('hidden');
     this.currentRecording = null;
   }
