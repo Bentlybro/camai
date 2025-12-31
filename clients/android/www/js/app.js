@@ -3,11 +3,13 @@
 
 // Import Capacitor plugins when available
 let LocalNotifications = null;
+let BackgroundMode = null;
 
 // Initialize Capacitor plugins when DOM is ready
 document.addEventListener('DOMContentLoaded', async () => {
   if (window.Capacitor && window.Capacitor.Plugins) {
     LocalNotifications = window.Capacitor.Plugins.LocalNotifications;
+    BackgroundMode = window.Capacitor.Plugins.BackgroundMode;
 
     // Request notification permissions
     if (LocalNotifications) {
@@ -16,6 +18,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('Notification permission:', permResult.display);
       } catch (e) {
         console.log('Notifications not available:', e);
+      }
+    }
+
+    // Setup background mode to keep WebSocket alive
+    if (BackgroundMode) {
+      try {
+        // Configure background mode
+        await BackgroundMode.setSettings({
+          title: 'CAMAI Monitoring',
+          text: 'Watching for person detection',
+          icon: 'ic_launcher',
+          color: '00d4aa',
+          resume: true,
+          hidden: false,
+          bigText: false
+        });
+
+        // Enable background mode when connected
+        BackgroundMode.addListener('appInBackground', () => {
+          console.log('App went to background - keeping WebSocket alive');
+        });
+
+        BackgroundMode.addListener('appInForeground', () => {
+          console.log('App returned to foreground');
+        });
+
+        console.log('Background mode configured');
+      } catch (e) {
+        console.log('Background mode not available:', e);
       }
     }
   }
@@ -266,6 +297,9 @@ class CamaiApp {
 
     // Setup WebSocket
     this.connectWebSocket();
+
+    // Enable background mode to keep WebSocket alive when app is minimized
+    this.enableBackgroundMode();
 
     // Start polling for stats (every 2 seconds)
     this.statsInterval = setInterval(() => this.loadStats(), 2000);
@@ -1032,6 +1066,31 @@ class CamaiApp {
 
   closePersonAlert() {
     document.getElementById('person-alert').classList.add('hidden');
+  }
+
+  async enableBackgroundMode() {
+    if (!BackgroundMode) {
+      console.log('Background mode not available');
+      return;
+    }
+
+    try {
+      await BackgroundMode.enable();
+      console.log('Background mode enabled - WebSocket will stay alive when app is minimized');
+    } catch (err) {
+      console.error('Failed to enable background mode:', err);
+    }
+  }
+
+  async disableBackgroundMode() {
+    if (!BackgroundMode) return;
+
+    try {
+      await BackgroundMode.disable();
+      console.log('Background mode disabled');
+    } catch (err) {
+      console.error('Failed to disable background mode:', err);
+    }
   }
 
   formatFullTime(timestamp) {

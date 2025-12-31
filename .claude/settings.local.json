@@ -3,7 +3,8 @@
     "allow": [
       "Bash(mkdir:*)",
       "Bash(bun install:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npm info:*)"
     ]
   }
 }

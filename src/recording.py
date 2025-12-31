@@ -76,6 +76,10 @@ class RecordingManager:
         # Thread safety
         self._lock = threading.Lock()
 
+        # Detection threshold - require consecutive frames before triggering
+        self._consecutive_detections = 0
+        self._detection_threshold = 3  # Need 3+ consecutive frames (~0.2s at 15fps)
+
         # Alert cooldown (don't spam alerts)
         self._last_alert_time: float = 0
         self._alert_cooldown: float = 30.0  # 30 seconds between alerts
@@ -105,23 +109,30 @@ class RecordingManager:
             self._frame_buffer.append((now, frame.copy()))
 
             if person_detected:
+                self._consecutive_detections += 1
                 self._last_person_seen = now
 
-                if not self._person_visible:
-                    # Person just appeared
-                    self._person_visible = True
-                    self._trigger_frame = frame.copy()
+                # Only trigger after seeing person for threshold frames
+                # This prevents false positives from single-frame detections
+                if self._consecutive_detections >= self._detection_threshold:
+                    if not self._person_visible:
+                        # Person confirmed - start tracking
+                        self._person_visible = True
+                        self._trigger_frame = frame.copy()
 
-                    # Send alert (with cooldown)
-                    if now - self._last_alert_time >= self._alert_cooldown:
-                        self._last_alert_time = now
-                        self._send_alert(frame, detections)
+                        # Send alert (with cooldown)
+                        if now - self._last_alert_time >= self._alert_cooldown:
+                            self._last_alert_time = now
+                            self._send_alert(frame, detections)
 
-                if not self._recording:
-                    # Start recording
-                    self._start_recording(now)
+                    if not self._recording:
+                        # Start recording
+                        self._start_recording(now)
 
             else:
+                # Reset consecutive counter when no person detected
+                self._consecutive_detections = 0
+
                 if self._person_visible:
                     # Person just left view
                     self._person_visible = False
@@ -174,17 +185,19 @@ class RecordingManager:
         filename = f"person_{timestamp_str}.mp4"
         self._current_file = date_dir / filename
 
-        # Initialize video writer with H.264 codec for browser compatibility
-        # Try multiple codecs in order of preference
+        # Initialize video writer
+        # On Jetson, H.264 hardware encoding may not be available via OpenCV
+        # Use mp4v which works universally, videos can be re-encoded later if needed
+        # For browser playback, the API will serve these files and most browsers
+        # can play mp4v, though H.264 is preferred
         codecs_to_try = [
-            ('avc1', '.mp4'),  # H.264 - best browser support
-            ('H264', '.mp4'),  # H.264 alternative
-            ('X264', '.mp4'),  # x264 encoder
-            ('mp4v', '.mp4'),  # Fallback - may not play in browser
+            'mp4v',  # MPEG-4 Part 2 - works on Jetson
+            'XVID',  # Xvid - good fallback
+            'MJPG',  # Motion JPEG - large files but very compatible
         ]
 
         self._writer = None
-        for codec, ext in codecs_to_try:
+        for codec in codecs_to_try:
             try:
                 fourcc = cv2.VideoWriter_fourcc(*codec)
                 test_writer = cv2.VideoWriter(
@@ -195,7 +208,7 @@ class RecordingManager:
                 )
                 if test_writer.isOpened():
                     self._writer = test_writer
-                    logger.debug(f"Using video codec: {codec}")
+                    logger.info(f"Recording using codec: {codec}")
                     break
                 else:
                     test_writer.release()

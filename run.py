@@ -79,6 +79,8 @@ def main():
     db.cleanup_old_events(days_to_keep=7)
     db.cleanup_old_recordings(days_to_keep=30)
 
+    # Note: RecordingManager cleanup runs after it's initialized below
+
     if cfg.enable_discord and cfg.discord_webhook:
         notifier.add_discord(cfg.discord_webhook)
     if cfg.enable_mqtt:
@@ -106,6 +108,9 @@ def main():
         on_recording_complete=on_recording_complete,
         on_person_alert=broadcast_alert,
     )
+
+    # Run recording file cleanup on startup
+    recorder.cleanup_old_recordings()
 
     # Event callback
     def on_event(event):
