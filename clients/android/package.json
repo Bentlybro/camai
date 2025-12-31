@@ -1,0 +1,30 @@
+{
+  "name": "camai-mobile",
+  "version": "1.0.0",
+  "description": "CAMAI Mobile App - Remote camera monitoring",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "echo 'No build step needed - static files'",
+    "android": "bun run build && bunx cap sync android && bunx cap open android",
+    "cap:sync": "bunx cap sync",
+    "cap:open": "bunx cap open android",
+    "cap:run": "bunx cap run android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/network": "^6.0.0",
+    "@capacitor/preferences": "^6.0.0",
+    "@capacitor/status-bar": "^6.0.0",
+    "@capacitor/splash-screen": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.0.0",
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

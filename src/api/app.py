@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from .routes import settings, ptz, events, streams, stats, system
 from database import get_database
@@ -14,6 +15,15 @@ from database import get_database
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="CAMAI", description="Jetson AI Camera System")
+
+# Add CORS middleware to allow mobile app access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for local network access
+    allow_credentials=False,  # Must be False when using wildcard origins
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Global state (set by main)
 _state = {

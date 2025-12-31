@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1a1a2e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>CAMAI</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Connection Setup Screen -->
+    <div id="setup-screen" class="screen active">
+      <div class="setup-container">
+        <div class="logo">
+          <svg viewBox="0 0 100 100" width="80" height="80">
+            <circle cx="50" cy="50" r="45" fill="none" stroke="#00d4ff" stroke-width="2"/>
+            <circle cx="50" cy="50" r="20" fill="#00d4ff" opacity="0.3"/>
+            <circle cx="50" cy="50" r="8" fill="#00d4ff"/>
+            <path d="M20 50 L35 50 M65 50 L80 50 M50 20 L50 35 M50 65 L50 80" stroke="#00d4ff" stroke-width="2"/>
+          </svg>
+        </div>
+        <h1>CAMAI</h1>
+        <p class="subtitle">AI Camera Monitor</p>
+
+        <div class="input-group">
+          <label for="server-ip">Server Address</label>
+          <input type="text" id="server-ip" placeholder="192.168.1.100" autocomplete="off">
+        </div>
+
+        <div class="input-group">
+          <label for="server-port">Port</label>
+          <input type="number" id="server-port" placeholder="8080" value="8080">
+        </div>
+
+        <button id="connect-btn" class="btn-primary">Connect</button>
+
+        <div id="connection-status" class="status"></div>
+      </div>
+    </div>
+
+    <!-- Main App Screen -->
+    <div id="main-screen" class="screen">
+      <!-- Header -->
+      <header class="app-header">
+        <div class="header-left">
+          <span class="connection-dot"></span>
+          <span id="header-status">Connected</span>
+        </div>
+        <h1>CAMAI</h1>
+        <button id="settings-btn" class="icon-btn">
+          <svg viewBox="0 0 24 24" width="24" height="24">
+            <path fill="currentColor" d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66Z"/>
+          </svg>
+        </button>
+      </header>
+
+      <!-- Tab Navigation -->
+      <nav class="tab-nav">
+        <button class="tab-btn active" data-tab="live">Live</button>
+        <button class="tab-btn" data-tab="events">Events</button>
+        <button class="tab-btn" data-tab="stats">Stats</button>
+        <button class="tab-btn" data-tab="system">System</button>
+      </nav>
+
+      <!-- Tab Content -->
+      <main class="tab-content">
+        <!-- Live View Tab -->
+        <div id="tab-live" class="tab-panel active">
+          <div class="stream-container">
+            <img id="live-stream" src="" alt="Live Stream">
+            <div class="stream-overlay">
+              <div class="stream-stats">
+                <span id="stream-fps">-- FPS</span>
+                <span id="stream-latency">-- ms</span>
+              </div>
+            </div>
+            <div id="stream-error" class="stream-error hidden">
+              <svg viewBox="0 0 24 24" width="48" height="48">
+                <path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+              </svg>
+              <p>Stream unavailable</p>
+            </div>
+            <button id="fullscreen-btn" class="fullscreen-btn">
+              <svg viewBox="0 0 24 24" width="24" height="24">
+                <path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- PTZ Controls -->
+          <div id="ptz-controls" class="ptz-controls hidden">
+            <h3>PTZ Control</h3>
+            <div class="ptz-pad">
+              <button class="ptz-btn" data-direction="up">
+                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+              </button>
+              <button class="ptz-btn" data-direction="left">
+                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></svg>
+              </button>
+              <button class="ptz-btn ptz-home" data-direction="home">
+                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+              </button>
+              <button class="ptz-btn" data-direction="right">
+                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
+              </button>
+              <button class="ptz-btn" data-direction="down">
+                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Current Detections -->
+          <div class="detections-panel">
+            <h3>Active Detections</h3>
+            <div id="detections-list" class="detections-list">
+              <p class="empty-state">No active detections</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Events Tab -->
+        <div id="tab-events" class="tab-panel">
+          <div class="events-header">
+            <select id="event-filter">
+              <option value="">All Events</option>
+              <option value="person">Person</option>
+              <option value="vehicle">Vehicle</option>
+              <option value="package">Package</option>
+            </select>
+            <button id="refresh-events" class="icon-btn">
+              <svg viewBox="0 0 24 24" width="20" height="20">
+                <path fill="currentColor" d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+              </svg>
+            </button>
+          </div>
+          <div id="events-list" class="events-list">
+            <p class="empty-state">Loading events...</p>
+          </div>
+        </div>
+
+        <!-- Stats Tab -->
+        <div id="tab-stats" class="tab-panel">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon person">
+                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+              </div>
+              <div class="stat-info">
+                <span class="stat-value" id="stat-persons">--</span>
+                <span class="stat-label">Persons Today</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon vehicle">
+                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>
+              </div>
+              <div class="stat-info">
+                <span class="stat-value" id="stat-vehicles">--</span>
+                <span class="stat-label">Vehicles Today</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon package">
+                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zm-7-2h2v-4h4v-2h-4V7h-2v4H8v2h4z"/></svg>
+              </div>
+              <div class="stat-info">
+                <span class="stat-value" id="stat-packages">--</span>
+                <span class="stat-label">Packages Today</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon total">
+                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+              </div>
+              <div class="stat-info">
+                <span class="stat-value" id="stat-total">--</span>
+                <span class="stat-label">Total Events</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="uptime-card">
+            <h3>System Uptime</h3>
+            <div class="uptime-value" id="stat-uptime">--</div>
+          </div>
+
+          <div class="performance-card">
+            <h3>Performance</h3>
+            <div class="perf-row">
+              <span>FPS</span>
+              <span id="perf-fps">--</span>
+            </div>
+            <div class="perf-row">
+              <span>Inference Time</span>
+              <span id="perf-inference">-- ms</span>
+            </div>
+            <div class="perf-row">
+              <span>Tracked Objects</span>
+              <span id="perf-tracked">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- System Tab -->
+        <div id="tab-system" class="tab-panel">
+          <div class="system-card">
+            <h3>CPU</h3>
+            <div class="progress-bar">
+              <div class="progress-fill" id="cpu-bar" style="width: 0%"></div>
+            </div>
+            <span class="progress-label" id="cpu-label">--%</span>
+          </div>
+
+          <div class="system-card">
+            <h3>Memory</h3>
+            <div class="progress-bar">
+              <div class="progress-fill" id="memory-bar" style="width: 0%"></div>
+            </div>
+            <span class="progress-label" id="memory-label">-- / -- GB</span>
+          </div>
+
+          <div class="system-card">
+            <h3>GPU</h3>
+            <div class="progress-bar">
+              <div class="progress-fill gpu" id="gpu-bar" style="width: 0%"></div>
+            </div>
+            <span class="progress-label" id="gpu-label">--%</span>
+          </div>
+
+          <div class="system-card">
+            <h3>Disk</h3>
+            <div class="progress-bar">
+              <div class="progress-fill" id="disk-bar" style="width: 0%"></div>
+            </div>
+            <span class="progress-label" id="disk-label">-- / -- GB</span>
+          </div>
+
+          <div class="system-card">
+            <h3>Temperature</h3>
+            <div class="temp-display">
+              <svg viewBox="0 0 24 24" width="32" height="32">
+                <path fill="currentColor" d="M15 13V5c0-1.66-1.34-3-3-3S9 3.34 9 5v8c-1.21.91-2 2.37-2 4 0 2.76 2.24 5 5 5s5-2.24 5-5c0-1.63-.79-3.09-2-4zm-4-8c0-.55.45-1 1-1s1 .45 1 1h-1v1h1v2h-1v1h1v2h-2V5z"/>
+              </svg>
+              <span id="temp-value">--°C</span>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- Settings Modal -->
+      <div id="settings-modal" class="modal hidden">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Settings</h2>
+            <button id="close-settings" class="icon-btn">
+              <svg viewBox="0 0 24 24" width="24" height="24">
+                <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+              </svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="setting-group">
+              <h3>Connection</h3>
+              <div class="setting-row">
+                <span>Server</span>
+                <span id="setting-server">--</span>
+              </div>
+              <button id="disconnect-btn" class="btn-danger">Disconnect</button>
+            </div>
+
+            <div class="setting-group">
+              <h3>Detection</h3>
+              <div class="setting-row">
+                <label for="setting-confidence">Confidence</label>
+                <input type="range" id="setting-confidence" min="0.1" max="1" step="0.05" value="0.5">
+                <span id="confidence-value">0.5</span>
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <h3>Display</h3>
+              <div class="setting-row">
+                <label for="setting-overlays">Show Overlays</label>
+                <input type="checkbox" id="setting-overlays" checked>
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <h3>About</h3>
+              <p class="about-text">CAMAI Mobile v1.0.0</p>
+              <p class="about-text">AI-Powered Camera Monitoring</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
