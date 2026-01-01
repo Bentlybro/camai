@@ -616,6 +616,15 @@ class EventDetector:
 
                 # Fire events for new detections
                 if det.class_name == "person":
+                    # Skip person_detected if camera recently moved or is still settling
+                    # This prevents spam when PTZ tracks a person: detect -> move -> lose -> settle -> re-detect
+                    camera_moving = self._camera_recently_moved()
+                    camera_settled = self._ptz.camera_is_settled() if self._ptz else True
+
+                    if camera_moving or not camera_settled:
+                        logger.debug("Suppressing person_detected - camera moving or settling")
+                        continue
+
                     # Time-based cooldown - one person_detected per 30 seconds max
                     if now - self._last_person_detected >= self._person_detected_cooldown:
                         self._last_person_detected = now
