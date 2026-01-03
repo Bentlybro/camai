@@ -198,8 +198,8 @@ async def get_recording(recording_id: int, user: CurrentUser = Depends(get_curre
 
 
 @router.get("/{recording_id}/stream")
-async def stream_recording(recording_id: int, user: CurrentUser = Depends(get_current_user)):
-    """Stream recording video (authenticated)."""
+async def stream_recording(recording_id: int, user: CurrentUser = Depends(require_stream_token)):
+    """Stream recording video (requires stream token via ?token=xxx)."""
     try:
         db = get_database()
         recording = db.get_recording(recording_id)
@@ -246,8 +246,8 @@ async def stream_recording(recording_id: int, user: CurrentUser = Depends(get_cu
 
 
 @router.get("/{recording_id}/download")
-async def download_recording(recording_id: int, user: CurrentUser = Depends(get_current_user)):
-    """Download recording video file (authenticated)."""
+async def download_recording(recording_id: int, user: CurrentUser = Depends(require_stream_token)):
+    """Download recording video file (requires stream token via ?token=xxx)."""
     try:
         db = get_database()
         recording = db.get_recording(recording_id)
