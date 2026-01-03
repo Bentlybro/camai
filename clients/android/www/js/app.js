@@ -2036,15 +2036,16 @@ class CamaiApp {
 
     this.currentRecording = recording;
 
-    // Set video source
+    // Set video source with stream token for auth
     const video = document.getElementById('recording-video');
     const fallback = document.getElementById('video-fallback');
+    const streamToken = this.streamToken || '';
 
     // Reset fallback state
     fallback.classList.add('hidden');
     video.style.display = 'block';
 
-    video.src = `${this.serverUrl}/api/recordings/${recordingId}/stream`;
+    video.src = `${this.serverUrl}/api/recordings/${recordingId}/stream?token=${streamToken}`;
 
     // Handle video error (codec not supported)
     video.onerror = () => {
@@ -2053,9 +2054,9 @@ class CamaiApp {
       fallback.classList.remove('hidden');
     };
 
-    // Set download link
+    // Set download link with stream token for auth
     const downloadBtn = document.getElementById('download-recording-btn');
-    downloadBtn.href = `${this.serverUrl}/api/recordings/${recordingId}/download`;
+    downloadBtn.href = `${this.serverUrl}/api/recordings/${recordingId}/download?token=${streamToken}`;
     downloadBtn.download = recording.filename || `recording_${recordingId}.mp4`;
 
     // Set info

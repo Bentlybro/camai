@@ -2202,11 +2202,14 @@ class CAMAIDashboard {
 
         if (title) title.textContent = recording?.filename || 'Recording';
 
+        // Get stream token for video URLs
+        const streamToken = this.streamToken || '';
+
         // Show video player with fallback
         if (mediaContainer) {
             mediaContainer.innerHTML = `
                 <video controls autoplay playsinline>
-                    <source src="/api/recordings/${id}/stream" type="video/mp4">
+                    <source src="/api/recordings/${id}/stream?token=${streamToken}" type="video/mp4">
                     Your browser does not support video playback.
                 </video>
                 <div class="video-fallback" style="display:none;">
@@ -2241,7 +2244,7 @@ class CAMAIDashboard {
                     <span class="detail-value">${recording?.formatted_size || '--'}</span>
                 </div>
                 <div class="recording-actions">
-                    <a href="/api/recordings/${id}/download" class="btn btn-primary" download="${recording?.filename || 'recording.mp4'}">
+                    <a href="/api/recordings/${id}/download?token=${streamToken}" class="btn btn-primary" download="${recording?.filename || 'recording.mp4'}">
                         Download Recording
                     </a>
                     <button class="btn-danger" onclick="dashboard.deleteRecording(${id})">Delete</button>
