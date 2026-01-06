@@ -14,6 +14,7 @@ from auth.dependencies import (
     get_current_user_optional,
     require_admin,
     get_user_from_stream_token,
+    get_user_from_basic_auth,
     require_stream_token,
     get_user_from_ws_token,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "get_current_user_optional",
     "require_admin",
     "get_user_from_stream_token",
+    "get_user_from_basic_auth",
     "require_stream_token",
     "get_user_from_ws_token",
     # Routers

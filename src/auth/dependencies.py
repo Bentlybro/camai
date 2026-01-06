@@ -1,16 +1,19 @@
 """FastAPI dependencies for authentication."""
 import logging
 from typing import Optional
-from fastapi import Depends, HTTPException, status, Query
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends, HTTPException, status, Query, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, HTTPBasic, HTTPBasicCredentials
 
 from database import get_database
-from auth.security import decode_token
+from auth.security import decode_token, verify_password
 
 logger = logging.getLogger(__name__)
 
 # HTTP Bearer token extractor
 security = HTTPBearer(auto_error=False)
+
+# HTTP Basic auth extractor (for stream endpoints)
+basic_security = HTTPBasic(auto_error=False)
 
 
 class CurrentUser:
@@ -141,14 +144,50 @@ async def get_user_from_stream_token(
     )
 
 
+async def get_user_from_basic_auth(
+    credentials: Optional[HTTPBasicCredentials] = Depends(basic_security)
+) -> Optional[CurrentUser]:
+    """
+    Get user from HTTP Basic Auth credentials.
+    Used for MJPEG streams with Home Assistant and similar integrations.
+    """
+    if not credentials:
+        return None
+
+    db = get_database()
+    user = db.get_user_by_username(credentials.username)
+
+    if not user:
+        return None
+
+    if not verify_password(credentials.password, user["password_hash"]):
+        return None
+
+    if not user.get("approved"):
+        return None
+
+    return CurrentUser(
+        user_id=user["id"],
+        username=user["username"],
+        role=user["role"],
+        approved=bool(user["approved"]),
+    )
+
+
 async def require_stream_token(
-    user: Optional[CurrentUser] = Depends(get_user_from_stream_token)
+    token_user: Optional[CurrentUser] = Depends(get_user_from_stream_token),
+    basic_user: Optional[CurrentUser] = Depends(get_user_from_basic_auth)
 ) -> CurrentUser:
-    """Require valid stream token. Raises 401 if missing/invalid."""
+    """
+    Require valid stream authentication.
+    Accepts either stream token (?token=xxx) or HTTP Basic Auth.
+    """
+    user = token_user or basic_user
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Valid stream token required",
+            detail="Valid stream token or basic auth required",
+            headers={"WWW-Authenticate": "Basic realm=\"Camera Stream\""},
         )
     return user
 
